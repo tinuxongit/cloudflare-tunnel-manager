@@ -196,12 +196,26 @@ use crate::cloudflared::api;
 
 #[tauri::command]
 pub async fn set_api_token(token: String) -> AppResult<()> {
-    // Verify the raw token first (no keyring round-trip).
-    // Bubble up the concrete failure (rustls/DNS/HTTP/CF error) so the UI can show it.
+    // 1. Verify the raw token against Cloudflare before touching keyring.
     api::verify_token(&token).await?;
+
+    // 2. Persist to OS keyring.
     secrets::set(secrets::CF_API_TOKEN, &token)
-        .map_err(|e| crate::error::AppError::Other { message: format!("keyring: {e}") })?;
-    Ok(())
+        .map_err(|e| crate::error::AppError::Other { message: format!("keyring write: {e}") })?;
+
+    // 3. Read back to confirm the credential survived the write. Catches the
+    //    case where the OS credential store silently rejects the write or
+    //    returns success without persisting (seen on locked-down Windows
+    //    profiles, sandboxed shells, missing credentials service on Linux).
+    match secrets::get(secrets::CF_API_TOKEN) {
+        Some(stored) if stored == token => Ok(()),
+        Some(_) => Err(crate::error::AppError::Other {
+            message: "keyring read-back returned a different value than was written".into(),
+        }),
+        None => Err(crate::error::AppError::Other {
+            message: "keyring write succeeded but read-back returned nothing — credential did not persist. Check Windows Credential Manager access.".into(),
+        }),
+    }
 }
 
 #[tauri::command]
