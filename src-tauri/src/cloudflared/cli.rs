@@ -67,10 +67,12 @@ impl CloudflaredCli {
         Ok(())
     }
 
-    pub fn route_dns(&self, uuid: &str, hostname: &str) -> AppResult<()> {
-        let out = Command::new(&self.path)
-            .args(["tunnel", "route", "dns", uuid, hostname])
-            .output()?;
+    pub fn route_dns(&self, uuid: &str, hostname: &str, overwrite: bool) -> AppResult<()> {
+        let mut args: Vec<&str> = vec!["tunnel", "route", "dns"];
+        if overwrite { args.push("--overwrite-dns"); }
+        args.push(uuid);
+        args.push(hostname);
+        let out = Command::new(&self.path).args(&args).output()?;
         if !out.status.success() {
             return Err(AppError::DnsRouteFailed {
                 hostname: hostname.into(),

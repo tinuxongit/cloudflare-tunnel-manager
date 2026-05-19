@@ -23,6 +23,7 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
   const [tunnelUuid, setTunnelUuid] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [conflictRetry, setConflictRetry] = useState(false); // shows "Overwrite" button
 
   const isEdit = !!editing;
   const useZoneMode = hasToken && zones.length > 0;
@@ -82,8 +83,8 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
 
   if (!open) return null;
 
-  async function submit() {
-    setSubmitting(true); setError(null);
+  async function submit(overwrite = false) {
+    setSubmitting(true); setError(null); setConflictRetry(false);
     try {
       if (!finalHostname) {
         setError('Hostname is empty.');
@@ -94,20 +95,25 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
         const hostnameChanged = editing.hostname !== finalHostname;
         const tunnelChanged = editing.tunnel_uuid !== tunnelUuid;
         if (hostnameChanged || tunnelChanged) {
-          await api.routeDns(tunnelUuid, finalHostname);
+          await api.routeDns(tunnelUuid, finalHostname, overwrite);
         }
         await api.updatePage(editing.id, {
           hostname: finalHostname, service_url: serviceUrl, tunnel_uuid: tunnelUuid,
         });
         await api.startOrRestartForPage(editing.id);
       } else {
-        await api.routeDns(tunnelUuid, finalHostname);
+        await api.routeDns(tunnelUuid, finalHostname, overwrite);
         await api.createPage({ hostname: finalHostname, service_url: serviceUrl, tunnel_uuid: tunnelUuid });
       }
       await refreshPages();
       onClose();
     } catch (e: any) {
-      setError(e?.message ?? String(e));
+      const msg: string = e?.message ?? String(e);
+      setError(msg);
+      // Detect "record already exists" conflict so we can offer overwrite.
+      if (!overwrite && /code:\s*1003|already exists/i.test(msg)) {
+        setConflictRetry(true);
+      }
     } finally { setSubmitting(false); }
   }
 
@@ -160,11 +166,28 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
           {tunnels.map((t: Tunnel) => <option key={t.uuid} value={t.uuid}>{t.name} ({t.uuid.slice(0, 8)})</option>)}
         </select>
 
-        {error && <div className="text-red-400 text-xs mb-3 font-mono">{error}</div>}
+        {error && (
+          <div className="text-red-300 text-[11px] mb-3 font-mono break-words bg-red-950/20 border border-red-900/50 rounded p-2">
+            {error}
+            {conflictRetry && (
+              <div className="mt-2 text-fg-dim">
+                A DNS record already exists at this hostname. Click <span className="text-fg-muted">Overwrite existing record</span> to replace it
+                with the tunnel CNAME. Old record content will be lost.
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="px-3 py-2 text-sm text-fg-muted hover:text-fg">Cancel</button>
-          <button onClick={submit} disabled={!finalHostname || !tunnelUuid || submitting}
+          {conflictRetry && (
+            <button onClick={() => submit(true)} disabled={submitting}
+              className="bg-yellow-600 hover:bg-yellow-500 text-bg rounded-md px-4 py-2 text-xs font-semibold flex items-center gap-2">
+              {submitting && <span className="w-3 h-3 border border-bg border-t-transparent rounded-full animate-spin" />}
+              Overwrite existing record
+            </button>
+          )}
+          <button onClick={() => submit(false)} disabled={!finalHostname || !tunnelUuid || submitting}
             className="bg-gradient-to-b from-fg to-fg-muted text-bg rounded-md px-4 py-2 text-xs font-semibold disabled:opacity-40 flex items-center gap-2">
             {submitting && <span className="w-3 h-3 border border-bg border-t-transparent rounded-full animate-spin" />}
             {submitting ? (isEdit ? 'Saving…' : 'Adding…') : (isEdit ? 'Save' : 'Add page')}

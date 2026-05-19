@@ -76,9 +76,9 @@ pub fn delete_tunnel(state: State<AppState>, uuid: String) -> AppResult<()> {
 }
 
 #[tauri::command]
-pub fn route_dns(state: State<AppState>, uuid: String, hostname: String) -> AppResult<()> {
+pub fn route_dns(state: State<AppState>, uuid: String, hostname: String, overwrite: Option<bool>) -> AppResult<()> {
     let cli = CloudflaredCli::with_path(state.supervisor.cloudflared_path.clone());
-    cli.route_dns(&uuid, &hostname)
+    cli.route_dns(&uuid, &hostname, overwrite.unwrap_or(false))
 }
 
 use crate::metrics::{self, RuntimeStatus};
