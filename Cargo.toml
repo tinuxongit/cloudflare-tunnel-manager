@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "src-tauri"]
+members = ["core", "src-tauri", "connector"]
 
 # Strip + LTO for release; useful both for the Tauri app and the future
 # connector binary. Inherited by all members unless overridden.
