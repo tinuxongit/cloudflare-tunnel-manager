@@ -88,14 +88,33 @@ pub async fn list_zones(token: &str) -> AppResult<Vec<Zone>> {
     Ok(zones)
 }
 
-pub async fn verify_token(token: &str) -> AppResult<bool> {
+pub async fn verify_token(token: &str) -> AppResult<()> {
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| AppError::Other { message: format!("http client: {e}") })?;
     let resp = client.get(format!("{API_BASE}/user/tokens/verify"))
         .bearer_auth(token)
         .send().await
         .map_err(|e| AppError::Other { message: format!("verify request: {e}") })?;
-    Ok(resp.status().is_success())
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(AppError::Other {
+            message: format!("Cloudflare /user/tokens/verify returned HTTP {status}. Body: {body}"),
+        });
+    }
+    // CF returns 200 with {"success": bool, "errors": [...]} — must check success flag too.
+    let parsed: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| AppError::Other { message: format!("verify body parse: {e} — body was: {body}") })?;
+    let success = parsed.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+    if !success {
+        let errs = parsed.get("errors").and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|e| e.get("message").and_then(|m| m.as_str())).collect::<Vec<_>>().join("; "))
+            .unwrap_or_else(|| "(no error message)".into());
+        return Err(AppError::Other {
+            message: format!("Cloudflare rejected token: {errs}"),
+        });
+    }
+    Ok(())
 }

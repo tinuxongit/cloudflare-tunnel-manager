@@ -21,18 +21,15 @@ export function ApiTokenSection() {
   async function save() {
     setSaving(true); setError(null); setVerified(null);
     try {
+      // setApiToken now verifies first, then stores. Any failure -> thrown.
       await api.setApiToken(token.trim());
-      const ok = await api.verifyApiToken();
-      setVerified(ok);
-      if (!ok) {
-        setError('Token rejected by Cloudflare. Check it has Zone:Read permission.');
-        return;
-      }
+      setVerified(true);
       await refreshTokenState();
       await refreshZones();
       setEditing(false);
       setToken('');
     } catch (e: any) {
+      // Surface the actual reason (HTTP status, CF error message, DNS, etc.)
       setError(e?.message ?? String(e));
     } finally { setSaving(false); }
   }

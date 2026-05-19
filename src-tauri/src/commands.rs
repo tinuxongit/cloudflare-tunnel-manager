@@ -195,9 +195,13 @@ use crate::secrets;
 use crate::cloudflared::api;
 
 #[tauri::command]
-pub fn set_api_token(token: String) -> AppResult<()> {
+pub async fn set_api_token(token: String) -> AppResult<()> {
+    // Verify the raw token first (no keyring round-trip).
+    // Bubble up the concrete failure (rustls/DNS/HTTP/CF error) so the UI can show it.
+    api::verify_token(&token).await?;
     secrets::set(secrets::CF_API_TOKEN, &token)
-        .map_err(|e| crate::error::AppError::Other { message: format!("keyring: {e}") })
+        .map_err(|e| crate::error::AppError::Other { message: format!("keyring: {e}") })?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -212,9 +216,9 @@ pub fn has_api_token() -> AppResult<bool> {
 }
 
 #[tauri::command]
-pub async fn verify_api_token() -> AppResult<bool> {
+pub async fn verify_api_token() -> AppResult<()> {
     let Some(token) = secrets::get(secrets::CF_API_TOKEN) else {
-        return Ok(false);
+        return Err(crate::error::AppError::Other { message: "no token saved".into() });
     };
     api::verify_token(&token).await
 }
