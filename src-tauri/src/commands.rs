@@ -80,3 +80,66 @@ pub fn route_dns(state: State<AppState>, uuid: String, hostname: String) -> AppR
     let cli = CloudflaredCli::with_path(state.supervisor.cloudflared_path.clone());
     cli.route_dns(&uuid, &hostname)
 }
+
+use crate::metrics::{self, RuntimeStatus};
+use crate::supervisor::log_buffer::LogLine;
+use crate::health::{check::check as service_check, ServiceHealth};
+use crate::cloudflared::cert;
+use serde::Serialize;
+
+#[tauri::command]
+pub async fn get_status(state: State<'_, AppState>, tunnel_uuid: String) -> AppResult<RuntimeStatus> {
+    let port = state.supervisor.metrics_port(&tunnel_uuid);
+    match port {
+        None    => Ok(RuntimeStatus { state: "stopped", ..Default::default() }),
+        Some(p) => metrics::scraper::fetch(p).await,
+    }
+}
+
+#[tauri::command]
+pub fn get_logs(state: State<AppState>, tunnel_uuid: String, last_n: usize) -> AppResult<Vec<LogLine>> {
+    Ok(state.supervisor.logs(&tunnel_uuid, last_n))
+}
+
+#[tauri::command]
+pub fn stop_tunnel(state: State<AppState>, uuid: String) -> AppResult<()> {
+    state.supervisor.stop(&uuid);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn check_local_service(url: String) -> AppResult<ServiceHealth> {
+    Ok(service_check(&url).await)
+}
+
+#[derive(Serialize)]
+pub struct CloudflaredInfo {
+    pub path: String,
+    pub version: String,
+    pub logged_in: bool,
+    pub cert_path: String,
+}
+
+#[tauri::command]
+pub fn cloudflared_info(state: State<AppState>) -> AppResult<CloudflaredInfo> {
+    let cli = CloudflaredCli::with_path(state.supervisor.cloudflared_path.clone());
+    let version = cli.version().unwrap_or_else(|_| "unknown".into());
+    Ok(CloudflaredInfo {
+        path: state.supervisor.cloudflared_path.display().to_string(),
+        version,
+        logged_in: cert::is_logged_in(),
+        cert_path: cert::cert_path().display().to_string(),
+    })
+}
+
+#[tauri::command]
+pub fn get_settings(state: State<AppState>) -> AppResult<Settings> {
+    let g = state.db.lock();
+    queries::get_settings(&g)
+}
+
+#[tauri::command]
+pub fn set_settings(state: State<AppState>, patch: SettingsPatch) -> AppResult<Settings> {
+    let g = state.db.lock();
+    queries::set_settings(&g, &patch)
+}
