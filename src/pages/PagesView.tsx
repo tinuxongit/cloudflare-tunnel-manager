@@ -5,16 +5,55 @@ import { StatsStrip } from '@/components/StatsStrip';
 import { PageRow } from '@/components/PageRow';
 import { useLiveStatus } from '@/hooks/useLiveStatus';
 import { AddPageDialog } from '@/components/AddPageDialog';
+import type { Page } from '@/lib/types';
 
 export function PagesView() {
   const { pages, statusByTunnel, refreshPages } = useStore();
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Page | null>(null);
+  const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
+  const [globalError, setGlobalError] = useState<string | null>(null);
   useLiveStatus(true);
 
+  function setBusy(id: number, busy: boolean) {
+    setBusyIds(prev => {
+      const next = new Set(prev);
+      if (busy) next.add(id); else next.delete(id);
+      return next;
+    });
+  }
+
   async function toggle(id: number, on: boolean) {
-    await api.togglePage(id, on);
-    await api.startOrRestartForPage(id);
-    await refreshPages();
+    setBusy(id, true); setGlobalError(null);
+    try {
+      await api.togglePage(id, on);
+      await refreshPages();              // reflect enabled flip immediately
+      await api.startOrRestartForPage(id); // long step; status badge will follow
+      await refreshPages();
+    } catch (e: any) {
+      setGlobalError(e?.message ?? String(e));
+      await refreshPages();
+    } finally {
+      setBusy(id, false);
+    }
+  }
+
+  async function remove(page: Page) {
+    if (!confirm(`Delete ${page.hostname}? This stops routing through cloudflared but does NOT remove the DNS record from Cloudflare.`)) return;
+    setBusy(page.id, true); setGlobalError(null);
+    try {
+      // First disable + restart so cloudflared stops serving this hostname
+      if (page.enabled) {
+        await api.togglePage(page.id, false);
+        await api.startOrRestartForPage(page.id);
+      }
+      await api.deletePage(page.id);
+      await refreshPages();
+    } catch (e: any) {
+      setGlobalError(e?.message ?? String(e));
+    } finally {
+      setBusy(page.id, false);
+    }
   }
 
   return (
@@ -29,16 +68,26 @@ export function PagesView() {
 
       <StatsStrip />
 
+      {globalError && (
+        <div className="mx-4 mt-4 px-4 py-2 text-xs text-red-300 border border-red-700/40 bg-red-950/30 rounded-md font-mono">
+          {globalError}
+        </div>
+      )}
+
       <div className="p-4">
         {pages.length === 0
           ? <div className="text-fg-dim text-sm p-6">No pages yet. Click "+ Add page" to create one.</div>
           : pages.map(p => (
               <PageRow key={p.id} page={p}
                 status={statusByTunnel[p.tunnel_uuid]}
-                onToggle={(on) => toggle(p.id, on)} />
+                busy={busyIds.has(p.id)}
+                onToggle={(on) => toggle(p.id, on)}
+                onEdit={() => setEditing(p)}
+                onDelete={() => remove(p)} />
             ))}
       </div>
       <AddPageDialog open={adding} onClose={() => setAdding(false)} />
+      <AddPageDialog open={editing !== null} onClose={() => setEditing(null)} editing={editing} />
     </div>
   );
 }

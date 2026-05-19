@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/ipc';
-import type { Tunnel } from '@/lib/types';
+import type { Page, Tunnel } from '@/lib/types';
 import { useStore } from '@/lib/store';
 
-type Props = { open: boolean; onClose: () => void };
+type Props = {
+  open: boolean;
+  onClose: () => void;
+  editing?: Page | null;
+};
 
-export function AddPageDialog({ open, onClose }: Props) {
+export function AddPageDialog({ open, onClose, editing }: Props) {
   const { tunnels, refreshPages, refreshTunnels } = useStore();
   const [hostname, setHostname] = useState('');
   const [serviceUrl, setServiceUrl] = useState('http://localhost:3000');
@@ -13,39 +17,58 @@ export function AddPageDialog({ open, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const isEdit = !!editing;
+
   useEffect(() => {
     if (open) {
       refreshTunnels();
       setError(null);
+      if (editing) {
+        setHostname(editing.hostname);
+        setServiceUrl(editing.service_url);
+        setTunnelUuid(editing.tunnel_uuid);
+      } else {
+        setHostname('');
+        setServiceUrl('http://localhost:3000');
+      }
     }
-  }, [open]);
+  }, [open, editing]);
 
   useEffect(() => {
-    if (!tunnelUuid && tunnels[0]) setTunnelUuid(tunnels[0].uuid);
-  }, [tunnels, tunnelUuid]);
+    if (!tunnelUuid && tunnels[0] && !editing) setTunnelUuid(tunnels[0].uuid);
+  }, [tunnels, tunnelUuid, editing]);
 
   if (!open) return null;
 
   async function submit() {
     setSubmitting(true); setError(null);
     try {
-      // 1. Route DNS first — fails fast if hostname's zone isn't on user's CF account.
-      //    No DB row gets created if this errors, so no orphans.
-      await api.routeDns(tunnelUuid, hostname);
-      // 2. Only then insert the page.
-      await api.createPage({ hostname, service_url: serviceUrl, tunnel_uuid: tunnelUuid });
+      if (isEdit && editing) {
+        // Update existing page. If hostname or tunnel changed, run route_dns for new combo.
+        const hostnameChanged = editing.hostname !== hostname;
+        const tunnelChanged = editing.tunnel_uuid !== tunnelUuid;
+        if (hostnameChanged || tunnelChanged) {
+          await api.routeDns(tunnelUuid, hostname);
+        }
+        await api.updatePage(editing.id, {
+          hostname, service_url: serviceUrl, tunnel_uuid: tunnelUuid,
+        });
+        await api.startOrRestartForPage(editing.id);
+      } else {
+        await api.routeDns(tunnelUuid, hostname);
+        await api.createPage({ hostname, service_url: serviceUrl, tunnel_uuid: tunnelUuid });
+      }
       await refreshPages();
       onClose();
-      setHostname(''); setServiceUrl('http://localhost:3000');
     } catch (e: any) {
       setError(e?.message ?? String(e));
     } finally { setSubmitting(false); }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-[480px] bg-bg-elev border border-border-strong rounded-xl p-6 shadow-2xl">
-        <h3 className="text-base font-semibold mb-4">Add page</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-[480px] bg-bg-elev border border-border-strong rounded-xl p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+        <h3 className="text-base font-semibold mb-4">{isEdit ? 'Edit page' : 'Add page'}</h3>
         <label className="block text-xs font-mono text-fg-dim mb-1">Hostname</label>
         <input value={hostname} onChange={e => setHostname(e.target.value)}
           placeholder="example.com"
@@ -67,8 +90,9 @@ export function AddPageDialog({ open, onClose }: Props) {
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="px-3 py-2 text-sm text-fg-muted hover:text-fg">Cancel</button>
           <button onClick={submit} disabled={!hostname || !tunnelUuid || submitting}
-            className="bg-gradient-to-b from-fg to-fg-muted text-bg rounded-md px-4 py-2 text-xs font-semibold disabled:opacity-40">
-            {submitting ? 'Adding…' : 'Add page'}
+            className="bg-gradient-to-b from-fg to-fg-muted text-bg rounded-md px-4 py-2 text-xs font-semibold disabled:opacity-40 flex items-center gap-2">
+            {submitting && <span className="w-3 h-3 border border-bg border-t-transparent rounded-full animate-spin" />}
+            {submitting ? (isEdit ? 'Saving…' : 'Adding…') : (isEdit ? 'Save' : 'Add page')}
           </button>
         </div>
       </div>
