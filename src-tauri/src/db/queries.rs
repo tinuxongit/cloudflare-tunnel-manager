@@ -2,57 +2,68 @@ use rusqlite::{Connection, params};
 use crate::db::models::*;
 use crate::error::{AppError, AppResult};
 
-pub fn insert_page(conn: &Connection, input: &NewPageInput) -> AppResult<Page> {
-    if list_pages(conn)?.iter().any(|p| p.hostname == input.hostname) {
-        return Err(AppError::HostnameTaken { hostname: input.hostname.clone() });
-    }
-    conn.execute(
-        "INSERT INTO pages (hostname, service_url, tunnel_uuid) VALUES (?1, ?2, ?3)",
-        params![input.hostname, input.service_url, input.tunnel_uuid],
-    )?;
-    let id = conn.last_insert_rowid();
-    get_page(conn, id)
-}
+const PAGE_COLS: &str =
+    "id, hostname, service_url, tunnel_uuid, enabled, created_at, source_dir, run_command, assigned_port";
 
-pub fn get_page(conn: &Connection, id: i64) -> AppResult<Page> {
-    Ok(conn.query_row(
-        "SELECT id, hostname, service_url, tunnel_uuid, enabled, created_at FROM pages WHERE id=?1",
-        params![id],
-        |r| Ok(Page {
-            id: r.get(0)?,
-            hostname: r.get(1)?,
-            service_url: r.get(2)?,
-            tunnel_uuid: r.get(3)?,
-            enabled: r.get::<_, i64>(4)? != 0,
-            created_at: r.get(5)?,
-        }),
-    )?)
-}
-
-pub fn list_pages(conn: &Connection) -> AppResult<Vec<Page>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, hostname, service_url, tunnel_uuid, enabled, created_at FROM pages ORDER BY id"
-    )?;
-    let rows = stmt.query_map([], |r| Ok(Page {
+fn row_to_page(r: &rusqlite::Row) -> rusqlite::Result<Page> {
+    Ok(Page {
         id: r.get(0)?,
         hostname: r.get(1)?,
         service_url: r.get(2)?,
         tunnel_uuid: r.get(3)?,
         enabled: r.get::<_, i64>(4)? != 0,
         created_at: r.get(5)?,
-    }))?;
+        source_dir: r.get(6)?,
+        run_command: r.get(7)?,
+        assigned_port: r.get::<_, Option<i64>>(8)?.map(|v| v as u16),
+    })
+}
+
+pub fn insert_page(conn: &Connection, input: &NewPageInput) -> AppResult<Page> {
+    if list_pages(conn)?.iter().any(|p| p.hostname == input.hostname) {
+        return Err(AppError::HostnameTaken { hostname: input.hostname.clone() });
+    }
+    conn.execute(
+        "INSERT INTO pages (hostname, service_url, tunnel_uuid, source_dir, run_command)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![input.hostname, input.service_url, input.tunnel_uuid,
+                input.source_dir, input.run_command],
+    )?;
+    let id = conn.last_insert_rowid();
+    get_page(conn, id)
+}
+
+pub fn get_page(conn: &Connection, id: i64) -> AppResult<Page> {
+    let sql = format!("SELECT {PAGE_COLS} FROM pages WHERE id=?1");
+    Ok(conn.query_row(&sql, params![id], row_to_page)?)
+}
+
+pub fn list_pages(conn: &Connection) -> AppResult<Vec<Page>> {
+    let sql = format!("SELECT {PAGE_COLS} FROM pages ORDER BY id");
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map([], row_to_page)?;
     Ok(rows.collect::<Result<Vec<_>,_>>()?)
 }
 
 pub fn update_page(conn: &Connection, id: i64, patch: &PagePatch) -> AppResult<Page> {
     let cur = get_page(conn, id)?;
-    let hostname = patch.hostname.clone().unwrap_or(cur.hostname);
-    let service_url = patch.service_url.clone().unwrap_or(cur.service_url);
-    let tunnel_uuid = patch.tunnel_uuid.clone().unwrap_or(cur.tunnel_uuid);
-    let enabled = patch.enabled.unwrap_or(cur.enabled);
+    let hostname     = patch.hostname.clone().unwrap_or(cur.hostname);
+    let service_url  = patch.service_url.clone().unwrap_or(cur.service_url);
+    let tunnel_uuid  = patch.tunnel_uuid.clone().unwrap_or(cur.tunnel_uuid);
+    let enabled      = patch.enabled.unwrap_or(cur.enabled);
+    let source_dir   = match &patch.source_dir   { Some(_) => patch.source_dir.clone(),   None => cur.source_dir };
+    let run_command  = match &patch.run_command  { Some(_) => patch.run_command.clone(),  None => cur.run_command };
+    let assigned_port: Option<u16> = match patch.assigned_port {
+        Some(p) => Some(p),
+        None    => cur.assigned_port,
+    };
     conn.execute(
-        "UPDATE pages SET hostname=?1, service_url=?2, tunnel_uuid=?3, enabled=?4 WHERE id=?5",
-        params![hostname, service_url, tunnel_uuid, enabled as i64, id],
+        "UPDATE pages SET hostname=?1, service_url=?2, tunnel_uuid=?3, enabled=?4,
+                          source_dir=?5, run_command=?6, assigned_port=?7
+         WHERE id=?8",
+        params![hostname, service_url, tunnel_uuid, enabled as i64,
+                source_dir, run_command, assigned_port.map(|v| v as i64),
+                id],
     )?;
     get_page(conn, id)
 }
@@ -142,6 +153,8 @@ mod tests {
             hostname: "example.com".into(),
             service_url: "http://localhost:3000".into(),
             tunnel_uuid: "uuid-1".into(),
+            source_dir: None,
+            run_command: None,
         }).unwrap();
         assert_eq!(p.hostname, "example.com");
         assert!(!p.enabled);

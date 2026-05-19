@@ -47,4 +47,9 @@ export const api = {
   clearGlobalKey:      () => call<void>('clear_global_key'),
   hasGlobalKey:        () => call<boolean>('has_global_key'),
   getGlobalKey:        () => call<[string, string] | null>('get_global_key'),
+
+  // Local-server management
+  detectFolder:        (path: string) => call<T.Detected>('detect_folder', { path }),
+  getLocalLogs:        (page_id: number, last_n = 500) => call<T.LogLine[]>('get_local_logs', { pageId: page_id, lastN: last_n }),
+  localIsRunning:      (page_id: number) => call<boolean>('local_is_running', { pageId: page_id }),
 };

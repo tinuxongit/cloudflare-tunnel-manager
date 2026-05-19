@@ -1,10 +1,23 @@
 export type Page = {
   id: number; hostname: string; service_url: string;
   tunnel_uuid: string; enabled: boolean; created_at: string;
+  source_dir: string | null;
+  run_command: string | null;
+  assigned_port: number | null;
 };
 
-export type NewPageInput = { hostname: string; service_url: string; tunnel_uuid: string; };
-export type PagePatch = Partial<{ hostname: string; service_url: string; tunnel_uuid: string; enabled: boolean; }>;
+export type NewPageInput = {
+  hostname: string; service_url: string; tunnel_uuid: string;
+  source_dir?: string | null;
+  run_command?: string | null;
+};
+export type PagePatch = Partial<{
+  hostname: string; service_url: string; tunnel_uuid: string; enabled: boolean;
+  source_dir: string | null; run_command: string | null; assigned_port: number | null;
+}>;
+
+export type DetectedKind = 'node_start' | 'node_static' | 'python' | 'static_folder' | 'empty' | 'not_found';
+export type Detected = { kind: DetectedKind; command: string; note: string; };
 
 export type Tunnel = { uuid: string; name: string; cred_path: string; managed: boolean; last_seen: string; };
 

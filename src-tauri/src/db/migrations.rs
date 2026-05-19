@@ -33,5 +33,16 @@ pub static MIGRATIONS: Lazy<Migrations<'static>> = Lazy::new(|| {
                 ('start_on_boot', '0');
             "#,
         ),
+        // v2: deployable folder per page.
+        // source_dir   = path on disk; null if user just provided a service_url externally
+        // run_command  = shell command to start the local server (placeholders: {PORT})
+        // assigned_port = port allocated to this page (1..=65535). Null until first start.
+        M::up(
+            r#"
+            ALTER TABLE pages ADD COLUMN source_dir    TEXT;
+            ALTER TABLE pages ADD COLUMN run_command   TEXT;
+            ALTER TABLE pages ADD COLUMN assigned_port INTEGER;
+            "#,
+        ),
     ])
 });

@@ -160,6 +160,25 @@ pub fn cloudflared_info(state: State<AppState>) -> AppResult<CloudflaredInfo> {
     })
 }
 
+use crate::local_server;
+
+#[tauri::command]
+pub fn detect_folder(path: String) -> AppResult<local_server::detect::Detected> {
+    Ok(local_server::detect(std::path::Path::new(&path)))
+}
+
+#[tauri::command]
+pub fn get_local_logs(state: State<AppState>, page_id: i64, last_n: usize)
+    -> AppResult<Vec<crate::supervisor::log_buffer::LogLine>>
+{
+    Ok(state.local.logs(page_id, last_n))
+}
+
+#[tauri::command]
+pub fn local_is_running(state: State<AppState>, page_id: i64) -> AppResult<bool> {
+    Ok(state.local.is_running(page_id))
+}
+
 #[tauri::command]
 pub fn get_settings(state: State<AppState>) -> AppResult<Settings> {
     let g = state.db.lock();
@@ -176,27 +195,57 @@ use crate::cloudflared::config_gen;
 
 #[tauri::command]
 pub async fn start_or_restart_for_page(state: State<'_, AppState>, page_id: i64) -> AppResult<()> {
-    // 1. load page + sibling pages on same tunnel
-    let (tunnel_uuid, enabled_siblings, cred_path) = {
+    // 1. Load this page. If it has a folder + run_command and is enabled,
+    //    spawn (or restart) the local server. Sync the assigned port back
+    //    into the page's service_url so cloudflared forwards there.
+    let (tunnel_uuid, this_page, all_pages, cred_path) = {
         let g = state.db.lock();
         let page = queries::get_page(&g, page_id)?;
         let all = queries::list_pages(&g)?;
-        let siblings: Vec<Page> = all.into_iter()
-            .filter(|p| p.tunnel_uuid == page.tunnel_uuid && p.enabled)
-            .collect();
         let tunnels = queries::list_tunnels(&g)?;
         let cred = tunnels.iter()
             .find(|t| t.uuid == page.tunnel_uuid)
             .map(|t| t.cred_path.clone())
             .unwrap_or_default();
-        (page.tunnel_uuid, siblings, cred)
+        (page.tunnel_uuid.clone(), page, all, cred)
     };
 
-    // 2. generate yaml
+    if this_page.enabled {
+        if let (Some(dir), Some(cmd)) = (this_page.source_dir.as_ref(), this_page.run_command.as_ref()) {
+            let port = match this_page.assigned_port {
+                Some(p) => p,
+                None    => state.local.alloc_port()?,
+            };
+            // Stop any old proc for this page first to free the port we want.
+            state.local.stop(page_id);
+            let port = state.local.start(page_id, std::path::Path::new(dir), cmd, port)?;
+            let url = format!("http://localhost:{port}");
+            let g = state.db.lock();
+            queries::update_page(&g, page_id, &PagePatch {
+                service_url: Some(url),
+                assigned_port: Some(port),
+                ..Default::default()
+            })?;
+        }
+    } else {
+        // Disabled — kill the local proc if running.
+        state.local.stop(page_id);
+    }
+
+    // 2. Rebuild ingress YAML for this tunnel using the freshest page rows.
+    let (enabled_siblings, _) = {
+        let g = state.db.lock();
+        let fresh = queries::list_pages(&g)?;
+        let siblings: Vec<Page> = fresh.into_iter()
+            .filter(|p| p.tunnel_uuid == tunnel_uuid && p.enabled)
+            .collect();
+        (siblings, all_pages) // all_pages is just kept for symmetry; unused
+    };
+
     let yaml = config_gen::build_yaml(&tunnel_uuid, &cred_path, &enabled_siblings);
     let cfg_path = config_gen::write_yaml(&state.configs_dir, &tunnel_uuid, &yaml)?;
 
-    // 3. restart proc
+    // 3. Restart cloudflared proc (or stop it if no pages remain).
     if enabled_siblings.is_empty() {
         state.supervisor.stop(&tunnel_uuid);
     } else {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { api } from '@/lib/ipc';
-import type { Page, Tunnel } from '@/lib/types';
+import type { Detected, Page, Tunnel } from '@/lib/types';
 import { useStore } from '@/lib/store';
 
 type Props = {
@@ -23,7 +24,14 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
   const [tunnelUuid, setTunnelUuid] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [conflictRetry, setConflictRetry] = useState(false); // shows "Overwrite" button
+  const [conflictRetry, setConflictRetry] = useState(false);
+
+  // Deploy-from-folder fields
+  const [mode, setMode] = useState<'folder' | 'manual'>('folder');
+  const [sourceDir, setSourceDir] = useState('');
+  const [runCommand, setRunCommand] = useState('');
+  const [detected, setDetected] = useState<Detected | null>(null);
+  const [detecting, setDetecting] = useState(false);
 
   const isEdit = !!editing;
   const useZoneMode = hasToken && zones.length > 0;
@@ -51,7 +59,9 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
       setHostnameRaw(editing.hostname);
       setServiceUrl(editing.service_url);
       setTunnelUuid(editing.tunnel_uuid);
-      // Try to split hostname into subdomain + zone if a zone matches
+      setSourceDir(editing.source_dir ?? '');
+      setRunCommand(editing.run_command ?? '');
+      setMode(editing.source_dir ? 'folder' : 'manual');
       const z = zones.find(z =>
         editing.hostname === z.name || editing.hostname.endsWith('.' + z.name)
       );
@@ -70,6 +80,10 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
       setServiceUrl('http://localhost:3000');
       setSubdomain('');
       setZoneName('');
+      setSourceDir('');
+      setRunCommand('');
+      setMode('folder');
+      setDetected(null);
     }
   }, [open, editing, hasToken]);
 
@@ -96,6 +110,24 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
     await api.routeDns(tunnelUuid, hostname, overwrite);
   }
 
+  async function pickFolder() {
+    const picked = await openDialog({ directory: true, multiple: false });
+    if (typeof picked === 'string' && picked) {
+      setSourceDir(picked);
+      setDetecting(true);
+      try {
+        const d = await api.detectFolder(picked);
+        setDetected(d);
+        // Auto-fill the command if the user hasn't customized it yet
+        if (!runCommand || runCommand === detected?.command) {
+          setRunCommand(d.command);
+        }
+      } catch (e: any) {
+        setDetected({ kind: 'not_found', command: '', note: e?.message ?? String(e) });
+      } finally { setDetecting(false); }
+    }
+  }
+
   async function submit(overwrite = false) {
     setSubmitting(true); setError(null); setConflictRetry(false);
     try {
@@ -104,6 +136,21 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
         setSubmitting(false);
         return;
       }
+
+      const usingFolder = mode === 'folder' && sourceDir.trim();
+      if (usingFolder && !runCommand.trim()) {
+        setError('Folder mode needs a run command. Pick a folder again or fill it manually.');
+        setSubmitting(false);
+        return;
+      }
+
+      // Manual mode = user-supplied serviceUrl. Folder mode = service_url is a
+      // placeholder; start_or_restart_for_page rewrites it once the local
+      // proc has an assigned port.
+      const initialServiceUrl = usingFolder ? 'http://localhost:0' : serviceUrl;
+      const sourceDirVal: string | null = usingFolder ? sourceDir.trim() : null;
+      const runCommandVal: string | null = usingFolder ? runCommand.trim() : null;
+
       if (isEdit && editing) {
         const hostnameChanged = editing.hostname !== finalHostname;
         const tunnelChanged = editing.tunnel_uuid !== tunnelUuid;
@@ -111,19 +158,28 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
           await doRouteDns(finalHostname, overwrite);
         }
         await api.updatePage(editing.id, {
-          hostname: finalHostname, service_url: serviceUrl, tunnel_uuid: tunnelUuid,
+          hostname: finalHostname,
+          service_url: usingFolder ? editing.service_url : serviceUrl,
+          tunnel_uuid: tunnelUuid,
+          source_dir: sourceDirVal,
+          run_command: runCommandVal,
         });
         await api.startOrRestartForPage(editing.id);
       } else {
         await doRouteDns(finalHostname, overwrite);
-        await api.createPage({ hostname: finalHostname, service_url: serviceUrl, tunnel_uuid: tunnelUuid });
+        await api.createPage({
+          hostname: finalHostname,
+          service_url: initialServiceUrl,
+          tunnel_uuid: tunnelUuid,
+          source_dir: sourceDirVal,
+          run_command: runCommandVal,
+        });
       }
       await refreshPages();
       onClose();
     } catch (e: any) {
       const msg: string = e?.message ?? String(e);
       setError(msg);
-      // Detect record-conflict variants from both CLI (code: 1003) and API (81053 / "already exists").
       if (!overwrite && /code:\s*1003|81053|81057|already exists|identical record/i.test(msg)) {
         setConflictRetry(true);
       }
@@ -168,10 +224,68 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
           )}
         </div>
 
-        <label className="block text-xs font-mono text-fg-dim mb-1">Local service URL</label>
-        <input value={serviceUrl} onChange={e => setServiceUrl(e.target.value)}
-          placeholder="http://localhost:3000"
-          className="w-full bg-bg border border-border rounded-md px-3 py-2 text-sm mb-3 font-mono" />
+        <div className="flex gap-1 bg-bg border border-border-strong rounded-md p-1 w-fit text-xs font-mono mb-3">
+          <button
+            type="button"
+            onClick={() => setMode('folder')}
+            className={`px-3 py-1 rounded ${mode === 'folder' ? 'bg-zinc-700 text-fg' : 'text-fg-muted hover:text-fg'}`}>
+            Deploy a folder
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('manual')}
+            className={`px-3 py-1 rounded ${mode === 'manual' ? 'bg-zinc-700 text-fg' : 'text-fg-muted hover:text-fg'}`}>
+            Use existing server
+          </button>
+        </div>
+
+        {mode === 'folder' ? (
+          <div className="space-y-2 mb-3">
+            <label className="block text-xs font-mono text-fg-dim">Folder</label>
+            <div className="flex gap-2">
+              <input
+                value={sourceDir}
+                onChange={e => setSourceDir(e.target.value)}
+                placeholder="C:\path\to\your\app"
+                className="flex-1 bg-bg border border-border rounded-md px-3 py-2 text-sm font-mono" />
+              <button type="button" onClick={pickFolder}
+                className="bg-bg-elev border border-border-strong rounded-md px-3 py-2 text-xs font-mono hover:bg-zinc-800 text-fg-muted hover:text-fg">
+                Browse…
+              </button>
+            </div>
+            {detecting && <div className="text-[11px] text-fg-dim font-mono">detecting…</div>}
+            {detected && (
+              <div className={`text-[11px] font-mono p-2 rounded
+                ${detected.kind === 'not_found' || detected.kind === 'empty'
+                  ? 'text-red-300 bg-red-950/20 border border-red-900/50'
+                  : 'text-fg-muted bg-bg border border-border-subtle'}`}>
+                <div className="text-fg">{detected.kind.replace('_', ' ')}</div>
+                <div className="text-fg-dim mt-1">{detected.note}</div>
+              </div>
+            )}
+
+            <label className="block text-xs font-mono text-fg-dim mt-2">Run command <span className="text-fg-faint">(use {'{PORT}'} for the auto-assigned port)</span></label>
+            <input
+              value={runCommand}
+              onChange={e => setRunCommand(e.target.value)}
+              placeholder="npm start"
+              className="w-full bg-bg border border-border rounded-md px-3 py-2 text-sm font-mono" />
+            <div className="text-[10px] text-fg-faint">
+              App spawns this in the folder with <span className="font-mono">PORT</span> env set. cloudflared
+              forwards your hostname to <span className="font-mono">localhost:&lt;auto-port&gt;</span>.
+            </div>
+          </div>
+        ) : (
+          <div className="mb-3">
+            <label className="block text-xs font-mono text-fg-dim mb-1">Local service URL</label>
+            <input value={serviceUrl} onChange={e => setServiceUrl(e.target.value)}
+              placeholder="http://localhost:3000"
+              className="w-full bg-bg border border-border rounded-md px-3 py-2 text-sm font-mono" />
+            <div className="text-[10px] text-fg-faint mt-1">
+              Point at a server you already run yourself (e.g. <span className="font-mono">node server.js</span>, dev server on :5173).
+            </div>
+          </div>
+        )}
 
         <label className="block text-xs font-mono text-fg-dim mb-1">Tunnel</label>
         <select value={tunnelUuid} onChange={e => setTunnelUuid(e.target.value)}

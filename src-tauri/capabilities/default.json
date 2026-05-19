@@ -18,6 +18,8 @@
     {
       "identifier": "opener:allow-open-url",
       "allow": [{ "url": "https://*" }, { "url": "http://*" }]
-    }
+    },
+    "dialog:default",
+    "dialog:allow-open"
   ]
 }

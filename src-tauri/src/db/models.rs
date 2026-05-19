@@ -8,6 +8,9 @@ pub struct Page {
     pub tunnel_uuid: String,
     pub enabled: bool,
     pub created_at: String,
+    pub source_dir: Option<String>,
+    pub run_command: Option<String>,
+    pub assigned_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -15,6 +18,10 @@ pub struct NewPageInput {
     pub hostname: String,
     pub service_url: String,
     pub tunnel_uuid: String,
+    #[serde(default)]
+    pub source_dir: Option<String>,
+    #[serde(default)]
+    pub run_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -23,6 +30,9 @@ pub struct PagePatch {
     pub service_url: Option<String>,
     pub tunnel_uuid: Option<String>,
     pub enabled: Option<bool>,
+    pub source_dir: Option<String>,
+    pub run_command: Option<String>,
+    pub assigned_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,10 +46,10 @@ pub struct Tunnel {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
-    pub grouping_mode: String,           // "shared" | "isolated"
+    pub grouping_mode: String,
     pub shared_tunnel_uuid: Option<String>,
     pub cloudflared_path: Option<String>,
-    pub theme: String,                   // "dark" | "light" | "system"
+    pub theme: String,
     pub start_on_boot: bool,
 }
 
