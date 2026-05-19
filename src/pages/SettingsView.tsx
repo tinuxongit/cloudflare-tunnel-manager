@@ -3,6 +3,7 @@ import { useStore } from '@/lib/store';
 import { api } from '@/lib/ipc';
 import { ApiTokenSection } from '@/components/ApiTokenSection';
 import { GlobalKeySection } from '@/components/GlobalKeySection';
+import { ConnectionSection } from '@/components/ConnectionSection';
 
 export function SettingsView() {
   const { settings, tunnels, cloudflared, refreshSettings } = useStore();
@@ -20,6 +21,10 @@ export function SettingsView() {
         <h2 className="text-lg font-semibold">Settings</h2>
       </div>
       <div className="p-7 max-w-2xl space-y-8">
+
+        <Section title="Connection">
+          <ConnectionSection />
+        </Section>
 
         <Section title="Cloudflare access">
           <AccessAuthSwitcher />
