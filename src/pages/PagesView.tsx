@@ -2,9 +2,11 @@ import { useStore } from '@/lib/store';
 import { api } from '@/lib/ipc';
 import { StatsStrip } from '@/components/StatsStrip';
 import { PageRow } from '@/components/PageRow';
+import { useLiveStatus } from '@/hooks/useLiveStatus';
 
 export function PagesView() {
   const { pages, statusByTunnel, refreshPages } = useStore();
+  useLiveStatus(true);
 
   async function toggle(id: number, on: boolean) {
     await api.togglePage(id, on);
