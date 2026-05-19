@@ -19,6 +19,7 @@ pub fn get(key: &str) -> Option<String> {
     match entry(key) {
         Ok(e) => match e.get_password() {
             Ok(s) => Some(s),
+            Err(keyring::Error::NoEntry) => None, // not configured — quiet
             Err(err) => {
                 warn!("keyring get({key}) failed: {err}");
                 None
