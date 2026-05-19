@@ -3,7 +3,6 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { api } from '@/lib/ipc';
 import { useStore } from '@/lib/store';
 
-const TOKEN_URL = 'https://dash.cloudflare.com/profile/api-tokens';
 const CREATE_URL = 'https://dash.cloudflare.com/profile/api-tokens?token_id=create';
 
 const REQUIRED_PERMS: { scope: string; name: string; reason: string }[] = [
