@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Sidebar } from '@/components/Sidebar';
 import { useStore } from '@/lib/store';
 import { PagesView } from '@/pages/PagesView';
+import { TunnelsView } from '@/pages/TunnelsView';
 
 export default function App() {
   const { view, refreshSystem, refreshPages, refreshTunnels, refreshSettings } = useStore();
@@ -18,7 +19,8 @@ export default function App() {
       <Sidebar />
       <main className="flex-1 min-w-0">
         {view === 'pages' && <PagesView />}
-        {view !== 'pages' && (
+        {view === 'tunnels' && <TunnelsView />}
+        {view !== 'pages' && view !== 'tunnels' && (
           <div className="p-8 text-fg-dim">View "{view}" coming soon.</div>
         )}
       </main>
