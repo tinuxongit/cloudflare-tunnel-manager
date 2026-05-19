@@ -64,6 +64,7 @@ pub fn run() {
             commands::has_global_key,
             commands::get_global_key,
             commands::detect_folder,
+            commands::write_setup_guide,
             commands::get_local_logs,
             commands::local_is_running,
         ])

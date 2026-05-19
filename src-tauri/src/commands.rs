@@ -168,6 +168,12 @@ pub fn detect_folder(path: String) -> AppResult<local_server::detect::Detected> 
 }
 
 #[tauri::command]
+pub fn write_setup_guide(path: String) -> AppResult<String> {
+    let p = local_server::setup_guide::write_setup_guide(std::path::Path::new(&path))?;
+    Ok(p.display().to_string())
+}
+
+#[tauri::command]
 pub fn get_local_logs(state: State<AppState>, page_id: i64, last_n: usize)
     -> AppResult<Vec<crate::supervisor::log_buffer::LogLine>>
 {

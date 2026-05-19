@@ -10,6 +10,40 @@ type Props = {
   editing?: Page | null;
 };
 
+function DropSetupGuideButton({ sourceDir }: { sourceDir: string }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  async function drop() {
+    setBusy(true); setResult(null);
+    try {
+      const path = await api.writeSetupGuide(sourceDir);
+      setResult({ ok: true, msg: `Wrote ${path}` });
+    } catch (e: any) {
+      setResult({ ok: false, msg: e?.message ?? String(e) });
+    } finally { setBusy(false); }
+  }
+  return (
+    <div className="mt-3 pt-3 border-t border-border-subtle">
+      <div className="flex items-center gap-3 flex-wrap">
+        <button type="button" onClick={drop} disabled={busy}
+          className="bg-bg-elev border border-border-strong rounded-md px-3 py-1.5 text-xs font-mono hover:bg-zinc-800 text-fg-muted hover:text-fg disabled:opacity-40">
+          {busy ? 'writing…' : '📄 Drop TUNNEL_MANAGER.md in this folder'}
+        </button>
+        {result && (
+          <span className={`text-[11px] font-mono ${result.ok ? 'text-green-400' : 'text-red-400'}`}>
+            {result.msg}
+          </span>
+        )}
+      </div>
+      <div className="text-[10px] text-fg-faint mt-2 leading-relaxed">
+        Drops a markdown file explaining the contract (PORT env var, 127.0.0.1 bind, no embedded
+        cloudflared) into the folder. Hand it to a teammate so they can adapt the project
+        without breaking the manager's spawn flow.
+      </div>
+    </div>
+  );
+}
+
 export function AddPageDialog({ open, onClose, editing }: Props) {
   const { tunnels, zones, hasToken, refreshPages, refreshTunnels, refreshZones, refreshTokenState } = useStore();
 
@@ -274,6 +308,10 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
               App spawns this in the folder with <span className="font-mono">PORT</span> env set. cloudflared
               forwards your hostname to <span className="font-mono">localhost:&lt;auto-port&gt;</span>.
             </div>
+
+            {sourceDir && (
+              <DropSetupGuideButton sourceDir={sourceDir} />
+            )}
           </div>
         ) : (
           <div className="mb-3">
