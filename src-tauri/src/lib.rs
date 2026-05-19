@@ -1,3 +1,12 @@
+pub mod error;
+pub mod state;
+pub mod commands;
+pub mod db;
+pub mod cloudflared;
+pub mod supervisor;
+pub mod metrics;
+pub mod health;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
