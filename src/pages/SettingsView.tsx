@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { useStore } from '@/lib/store';
 import { api } from '@/lib/ipc';
 import { ApiTokenSection } from '@/components/ApiTokenSection';
+import { GlobalKeySection } from '@/components/GlobalKeySection';
 
 export function SettingsView() {
   const { settings, tunnels, cloudflared, refreshSettings } = useStore();
@@ -20,7 +22,7 @@ export function SettingsView() {
       <div className="p-7 max-w-2xl space-y-8">
 
         <Section title="Cloudflare access">
-          <ApiTokenSection />
+          <AccessAuthSwitcher />
         </Section>
 
         <Section title="Tunnels">
@@ -64,6 +66,30 @@ export function SettingsView() {
           </Row>
         </Section>
 
+      </div>
+    </div>
+  );
+}
+
+function AccessAuthSwitcher() {
+  const [mode, setMode] = useState<'token' | 'global'>('token');
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1 bg-bg border border-border-strong rounded-md p-1 w-fit text-xs font-mono">
+        <button
+          onClick={() => setMode('token')}
+          className={`px-3 py-1 rounded ${mode === 'token' ? 'bg-zinc-700 text-fg' : 'text-fg-muted hover:text-fg'}`}>
+          API Token (recommended)
+        </button>
+        <button
+          onClick={() => setMode('global')}
+          className={`px-3 py-1 rounded ${mode === 'global' ? 'bg-zinc-700 text-fg' : 'text-fg-muted hover:text-fg'}`}>
+          Global API Key (legacy)
+        </button>
+      </div>
+      {mode === 'token' ? <ApiTokenSection /> : <GlobalKeySection />}
+      <div className="text-[11px] text-fg-dim">
+        Both methods coexist. The app prefers the API Token if both are saved. Remove one to force the other.
       </div>
     </div>
   );

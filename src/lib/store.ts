@@ -49,8 +49,12 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
   refreshTokenState: async () => {
-    try { set({ hasToken: await api.hasApiToken() }); }
-    catch { set({ hasToken: false }); }
+    try {
+      // hasToken = any credential is configured (Bearer OR Global Key).
+      // The backend's resolve_credentials() picks whichever is set.
+      const [tok, gk] = await Promise.all([api.hasApiToken(), api.hasGlobalKey()]);
+      set({ hasToken: tok || gk });
+    } catch { set({ hasToken: false }); }
   },
   setStatus: (uuid, st) => set({ statusByTunnel: { ...get().statusByTunnel, [uuid]: st } }),
 }));

@@ -57,6 +57,10 @@ pub fn run() {
             commands::get_api_token,
             commands::list_zones,
             commands::verify_api_token,
+            commands::set_global_key,
+            commands::clear_global_key,
+            commands::has_global_key,
+            commands::get_global_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

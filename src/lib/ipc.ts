@@ -41,4 +41,10 @@ export const api = {
   getApiToken:         () => call<string | null>('get_api_token'),
   verifyApiToken:      () => call<void>('verify_api_token'),
   listZones:           () => call<T.Zone[]>('list_zones'),
+
+  // Global API Key (legacy auth)
+  setGlobalKey:        (email: string, key: string) => call<void>('set_global_key', { email, key }),
+  clearGlobalKey:      () => call<void>('clear_global_key'),
+  hasGlobalKey:        () => call<boolean>('has_global_key'),
+  getGlobalKey:        () => call<[string, string] | null>('get_global_key'),
 };

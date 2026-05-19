@@ -41,3 +41,5 @@ pub fn has(key: &str) -> bool {
 }
 
 pub const CF_API_TOKEN: &str = "cloudflare_api_token";
+pub const CF_GLOBAL_EMAIL: &str = "cloudflare_global_email";
+pub const CF_GLOBAL_KEY:   &str = "cloudflare_global_key";

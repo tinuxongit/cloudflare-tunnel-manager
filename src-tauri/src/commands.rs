@@ -91,10 +91,9 @@ pub async fn route_dns_via_api(
     tunnel_uuid: String,
     overwrite: Option<bool>,
 ) -> AppResult<()> {
-    let token = crate::secrets::get(crate::secrets::CF_API_TOKEN)
-        .ok_or(crate::error::AppError::Other { message: "no API token set — Settings → Cloudflare access".into() })?;
+    let creds = crate::cloudflared::api::resolve_credentials()?;
     crate::cloudflared::api::upsert_tunnel_cname(
-        &token, &zone_id, &hostname, &tunnel_uuid, overwrite.unwrap_or(false),
+        &creds, &zone_id, &hostname, &tunnel_uuid, overwrite.unwrap_or(false),
     ).await
 }
 
@@ -264,7 +263,45 @@ pub async fn verify_api_token() -> AppResult<()> {
 
 #[tauri::command]
 pub async fn list_zones() -> AppResult<Vec<api::Zone>> {
-    let token = secrets::get(secrets::CF_API_TOKEN)
-        .ok_or(crate::error::AppError::Other { message: "no API token set".into() })?;
-    api::list_zones(&token).await
+    let creds = api::resolve_credentials()?;
+    api::list_zones(&creds).await
+}
+
+// --- Global API Key (legacy auth) ------------------------------------------
+
+#[tauri::command]
+pub async fn set_global_key(email: String, key: String) -> AppResult<()> {
+    let creds = api::Credentials::GlobalKey { email: email.clone(), key: key.clone() };
+    api::verify(&creds).await?;
+    secrets::set(secrets::CF_GLOBAL_EMAIL, &email)
+        .map_err(|e| crate::error::AppError::Other { message: format!("keyring write (email): {e}") })?;
+    secrets::set(secrets::CF_GLOBAL_KEY, &key)
+        .map_err(|e| crate::error::AppError::Other { message: format!("keyring write (key): {e}") })?;
+    // Read-back sanity check
+    match (secrets::get(secrets::CF_GLOBAL_EMAIL), secrets::get(secrets::CF_GLOBAL_KEY)) {
+        (Some(e), Some(k)) if e == email && k == key => Ok(()),
+        _ => Err(crate::error::AppError::Other {
+            message: "keyring read-back failed for global key — credential did not persist.".into(),
+        }),
+    }
+}
+
+#[tauri::command]
+pub fn clear_global_key() -> AppResult<()> {
+    let _ = secrets::delete(secrets::CF_GLOBAL_EMAIL);
+    let _ = secrets::delete(secrets::CF_GLOBAL_KEY);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn has_global_key() -> AppResult<bool> {
+    Ok(secrets::has(secrets::CF_GLOBAL_EMAIL) && secrets::has(secrets::CF_GLOBAL_KEY))
+}
+
+#[tauri::command]
+pub fn get_global_key() -> AppResult<Option<(String, String)>> {
+    match (secrets::get(secrets::CF_GLOBAL_EMAIL), secrets::get(secrets::CF_GLOBAL_KEY)) {
+        (Some(e), Some(k)) => Ok(Some((e, k))),
+        _ => Ok(None),
+    }
 }

@@ -1,16 +1,50 @@
 //! Thin wrapper over the Cloudflare REST API (https://api.cloudflare.com/client/v4).
-//! Used only for read-only zone discovery; tunnel CRUD still goes through the CLI.
+//! Used for read-only zone discovery and DNS record CRUD; tunnel CRUD still
+//! goes through the CLI for now.
 
 use serde::{Deserialize, Serialize};
+use reqwest::RequestBuilder;
 use crate::error::{AppError, AppResult};
 
 const API_BASE: &str = "https://api.cloudflare.com/client/v4";
 
+/// Credentials variant. Bearer = scoped API Token. GlobalKey = legacy
+/// X-Auth-Email + X-Auth-Key with full account access.
+#[derive(Debug, Clone)]
+pub enum Credentials {
+    Bearer(String),
+    GlobalKey { email: String, key: String },
+}
+
+impl Credentials {
+    pub fn apply(&self, rb: RequestBuilder) -> RequestBuilder {
+        match self {
+            Credentials::Bearer(token) => rb.bearer_auth(token),
+            Credentials::GlobalKey { email, key } => rb
+                .header("X-Auth-Email", email)
+                .header("X-Auth-Key", key),
+        }
+    }
+}
+
+/// Resolve the active credential. Prefers a saved API Token; falls back to
+/// Global API Key. Returns Err if nothing is configured.
+pub fn resolve_credentials() -> AppResult<Credentials> {
+    use crate::secrets;
+    if let Some(token) = secrets::get(secrets::CF_API_TOKEN) {
+        return Ok(Credentials::Bearer(token));
+    }
+    match (secrets::get(secrets::CF_GLOBAL_EMAIL), secrets::get(secrets::CF_GLOBAL_KEY)) {
+        (Some(email), Some(key)) => Ok(Credentials::GlobalKey { email, key }),
+        _ => Err(AppError::Other { message: "no Cloudflare credentials configured".into() }),
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Zone {
     pub id: String,
-    pub name: String,         // e.g. "alpha.com"
-    pub status: String,       // "active" | "pending" | ...
+    pub name: String,
+    pub status: String,
     pub account_name: Option<String>,
 }
 
@@ -40,23 +74,23 @@ struct RawAccount {
     name: String,
 }
 
-pub async fn list_zones(token: &str) -> AppResult<Vec<Zone>> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
+fn http_client() -> AppResult<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
         .build()
-        .map_err(|e| AppError::Other { message: format!("http client: {e}") })?;
+        .map_err(|e| AppError::Other { message: format!("http client: {e}") })
+}
 
+pub async fn list_zones(creds: &Credentials) -> AppResult<Vec<Zone>> {
+    let client = http_client()?;
     let mut zones = Vec::new();
     let mut page = 1u32;
     loop {
         let url = format!("{API_BASE}/zones?per_page=50&page={page}");
-        let resp = client.get(&url)
-            .bearer_auth(token)
-            .send().await
+        let resp = creds.apply(client.get(&url)).send().await
             .map_err(|e| AppError::Other { message: format!("zones request: {e}") })?;
         let status = resp.status();
-        let body = resp.text().await
-            .map_err(|e| AppError::Other { message: format!("zones body: {e}") })?;
+        let body = resp.text().await.unwrap_or_default();
         if !status.is_success() {
             return Err(AppError::Other {
                 message: format!("Cloudflare API {status}: {body}"),
@@ -83,72 +117,61 @@ pub async fn list_zones(token: &str) -> AppResult<Vec<Zone>> {
         }
         if !got_full_page { break; }
         page += 1;
-        if page > 20 { break; } // safety cap: 1000 zones
+        if page > 20 { break; }
     }
     Ok(zones)
 }
 
-/// Create or replace a CNAME pointing the given hostname at the tunnel.
-/// Goes straight to /zones/{zone_id}/dns_records — no cert.pem involved,
-/// no zone-guessing on cloudflared's side. Requires Zone:DNS:Edit on the token.
 pub async fn upsert_tunnel_cname(
-    token: &str,
+    creds: &Credentials,
     zone_id: &str,
     hostname: &str,
     tunnel_uuid: &str,
     overwrite: bool,
 ) -> AppResult<()> {
     let target = format!("{tunnel_uuid}.cfargotunnel.com");
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| AppError::Other { message: format!("http client: {e}") })?;
+    let client = http_client()?;
 
-    // 1. Try to create.
-    let create_body = serde_json::json!({
+    let body = serde_json::json!({
         "type": "CNAME",
         "name": hostname,
         "content": target,
         "proxied": true,
         "ttl": 1,
     });
-    let resp = client
-        .post(format!("{API_BASE}/zones/{zone_id}/dns_records"))
-        .bearer_auth(token)
-        .json(&create_body)
-        .send().await
+
+    let resp = creds.apply(
+        client.post(format!("{API_BASE}/zones/{zone_id}/dns_records")).json(&body)
+    ).send().await
         .map_err(|e| AppError::Other { message: format!("dns create: {e}") })?;
     let status = resp.status();
-    let body = resp.text().await.unwrap_or_default();
+    let txt = resp.text().await.unwrap_or_default();
+    if status.is_success() { return Ok(()); }
 
-    if status.is_success() {
-        return Ok(());
-    }
-
-    // Detect "record already exists" (code 81053 or similar). Decide whether to overwrite.
-    let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::json!({}));
+    let parsed: serde_json::Value = serde_json::from_str(&txt).unwrap_or(serde_json::json!({}));
     let already_exists = parsed.get("errors")
         .and_then(|v| v.as_array())
         .map(|errs| errs.iter().any(|e| {
             let code = e.get("code").and_then(|c| c.as_i64()).unwrap_or(0);
             let msg = e.get("message").and_then(|m| m.as_str()).unwrap_or("");
-            code == 81053 || code == 81057 || msg.to_lowercase().contains("already exists") || msg.to_lowercase().contains("identical record")
+            code == 81053 || code == 81057
+                || msg.to_lowercase().contains("already exists")
+                || msg.to_lowercase().contains("identical record")
         }))
         .unwrap_or(false);
 
     if !already_exists || !overwrite {
         return Err(AppError::DnsRouteFailed {
             hostname: hostname.into(),
-            stderr: format!("Cloudflare API HTTP {status}: {body}"),
+            stderr: format!("Cloudflare API HTTP {status}: {txt}"),
         });
     }
 
-    // 2. Look up existing record id, then PUT to replace.
     let list_url = format!(
         "{API_BASE}/zones/{zone_id}/dns_records?name={}&match=all",
         urlencode(hostname)
     );
-    let list_resp = client.get(&list_url).bearer_auth(token).send().await
+    let list_resp = creds.apply(client.get(&list_url)).send().await
         .map_err(|e| AppError::Other { message: format!("dns list: {e}") })?;
     let list_body = list_resp.text().await.unwrap_or_default();
     let list_parsed: serde_json::Value = serde_json::from_str(&list_body)
@@ -160,15 +183,13 @@ pub async fn upsert_tunnel_cname(
         .and_then(|i| i.as_str())
         .ok_or(AppError::DnsRouteFailed {
             hostname: hostname.into(),
-            stderr: format!("could not find existing record id to overwrite. List response: {list_body}"),
+            stderr: format!("no record id to overwrite. List response: {list_body}"),
         })?
         .to_string();
 
-    let put_resp = client
-        .put(format!("{API_BASE}/zones/{zone_id}/dns_records/{record_id}"))
-        .bearer_auth(token)
-        .json(&create_body)
-        .send().await
+    let put_resp = creds.apply(
+        client.put(format!("{API_BASE}/zones/{zone_id}/dns_records/{record_id}")).json(&body)
+    ).send().await
         .map_err(|e| AppError::Other { message: format!("dns overwrite: {e}") })?;
     let put_status = put_resp.status();
     let put_body = put_resp.text().await.unwrap_or_default();
@@ -182,43 +203,44 @@ pub async fn upsert_tunnel_cname(
 }
 
 fn urlencode(s: &str) -> String {
-    // tiny inlined encoder — only need %-encoding for typical hostname chars.
-    s.bytes().flat_map(|b| {
-        match b {
-            b'.' | b'-' | b'_' | b'~' | b'0'..=b'9' | b'A'..=b'Z' | b'a'..=b'z' =>
-                vec![b as char].into_iter().collect::<String>().chars().collect::<Vec<_>>(),
-            _ => format!("%{:02X}", b).chars().collect(),
-        }
+    s.bytes().flat_map(|b| match b {
+        b'.' | b'-' | b'_' | b'~' | b'0'..=b'9' | b'A'..=b'Z' | b'a'..=b'z' =>
+            vec![b as char],
+        _ => format!("%{:02X}", b).chars().collect(),
     }).collect()
 }
 
-pub async fn verify_token(token: &str) -> AppResult<()> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| AppError::Other { message: format!("http client: {e}") })?;
-    let resp = client.get(format!("{API_BASE}/user/tokens/verify"))
-        .bearer_auth(token)
-        .send().await
+/// Verify whatever credential is active. For Bearer tokens, hits
+/// /user/tokens/verify. For Global API Key, hits /user (which returns
+/// 200 + the user object if email + key are valid).
+pub async fn verify(creds: &Credentials) -> AppResult<()> {
+    let client = http_client()?;
+    let url = match creds {
+        Credentials::Bearer(_)        => format!("{API_BASE}/user/tokens/verify"),
+        Credentials::GlobalKey { .. } => format!("{API_BASE}/user"),
+    };
+    let resp = creds.apply(client.get(&url)).send().await
         .map_err(|e| AppError::Other { message: format!("verify request: {e}") })?;
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
     if !status.is_success() {
         return Err(AppError::Other {
-            message: format!("Cloudflare /user/tokens/verify returned HTTP {status}. Body: {body}"),
+            message: format!("Cloudflare {url} returned HTTP {status}. Body: {body}"),
         });
     }
-    // CF returns 200 with {"success": bool, "errors": [...]} — must check success flag too.
     let parsed: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|e| AppError::Other { message: format!("verify body parse: {e} — body was: {body}") })?;
+        .map_err(|e| AppError::Other { message: format!("verify body parse: {e} — body: {body}") })?;
     let success = parsed.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
     if !success {
         let errs = parsed.get("errors").and_then(|v| v.as_array())
             .map(|a| a.iter().filter_map(|e| e.get("message").and_then(|m| m.as_str())).collect::<Vec<_>>().join("; "))
             .unwrap_or_else(|| "(no error message)".into());
-        return Err(AppError::Other {
-            message: format!("Cloudflare rejected token: {errs}"),
-        });
+        return Err(AppError::Other { message: format!("Cloudflare rejected credential: {errs}") });
     }
     Ok(())
+}
+
+// Backwards-compat shims used by older callers.
+pub async fn verify_token(token: &str) -> AppResult<()> {
+    verify(&Credentials::Bearer(token.to_string())).await
 }
