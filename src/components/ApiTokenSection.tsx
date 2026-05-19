@@ -97,30 +97,33 @@ export function ApiTokenSection() {
         </div>
       )}
 
-      {/* Always render the field. Read-only when not editing. */}
-      <div className="flex gap-2 items-center">
-        <input
-          type={revealed || editing ? 'text' : 'password'}
-          value={showRawValue}
-          readOnly={!editing}
-          autoFocus={editing}
-          onChange={e => setToken(e.target.value)}
-          onKeyDown={e => { if (editing && e.key === 'Enter' && token && !saving) save(); }}
-          placeholder={hasToken ? '' : 'paste token here, press Enter to save'}
-          className={`flex-1 bg-bg border border-border rounded-md px-3 py-2 text-sm font-mono
-            ${!editing ? 'text-fg-muted cursor-default' : ''}`}
-        />
-        {hasToken && !editing && (
-          <button
-            type="button"
-            title={revealed ? 'Hide' : 'Reveal'}
-            onClick={() => setRevealed(v => !v)}
-            className="w-9 h-9 flex items-center justify-center border border-border rounded-md text-fg-muted hover:text-fg hover:bg-bg-elev"
-          >
-            {revealed ? <EyeOff /> : <Eye />}
-          </button>
-        )}
-      </div>
+      {/* Show input only when a token exists (display + reveal) or while editing.
+          When neither, the "Add token" button below opens the editor. */}
+      {(hasToken || editing) && (
+        <div className="flex gap-2 items-center">
+          <input
+            type={revealed || editing ? 'text' : 'password'}
+            value={showRawValue}
+            readOnly={!editing}
+            autoFocus={editing}
+            onChange={e => setToken(e.target.value)}
+            onKeyDown={e => { if (editing && e.key === 'Enter' && token && !saving) save(); }}
+            placeholder={editing ? 'paste token here, press Enter to save' : ''}
+            className={`flex-1 bg-bg border border-border rounded-md px-3 py-2 text-sm font-mono
+              ${!editing ? 'text-fg-muted cursor-default' : ''}`}
+          />
+          {hasToken && !editing && (
+            <button
+              type="button"
+              title={revealed ? 'Hide' : 'Reveal'}
+              onClick={() => setRevealed(v => !v)}
+              className="w-9 h-9 flex items-center justify-center border border-border rounded-md text-fg-muted hover:text-fg hover:bg-bg-elev"
+            >
+              {revealed ? <EyeOff /> : <Eye />}
+            </button>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="text-red-300 text-[11px] font-mono break-words bg-red-950/20 border border-red-900/50 rounded p-2">
