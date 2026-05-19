@@ -29,12 +29,14 @@ export function AddPageDialog({ open, onClose }: Props) {
   async function submit() {
     setSubmitting(true); setError(null);
     try {
-      const page = await api.createPage({ hostname, service_url: serviceUrl, tunnel_uuid: tunnelUuid });
+      // 1. Route DNS first — fails fast if hostname's zone isn't on user's CF account.
+      //    No DB row gets created if this errors, so no orphans.
       await api.routeDns(tunnelUuid, hostname);
+      // 2. Only then insert the page.
+      await api.createPage({ hostname, service_url: serviceUrl, tunnel_uuid: tunnelUuid });
       await refreshPages();
       onClose();
       setHostname(''); setServiceUrl('http://localhost:3000');
-      void page;
     } catch (e: any) {
       setError(e?.message ?? String(e));
     } finally { setSubmitting(false); }
