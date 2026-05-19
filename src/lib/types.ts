@@ -38,3 +38,10 @@ export type CloudflaredInfo = {
 };
 
 export type AppError = { code: string; message: string; detail: string | null };
+
+export type Zone = {
+  id: string;
+  name: string;
+  status: string;
+  account_name: string | null;
+};

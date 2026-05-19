@@ -31,4 +31,11 @@ export const api = {
 
   getSettings:         () => call<T.Settings>('get_settings'),
   setSettings:         (patch: T.SettingsPatch) => call<T.Settings>('set_settings', { patch }),
+
+  // Cloudflare API token + zones
+  setApiToken:         (token: string) => call<void>('set_api_token', { token }),
+  clearApiToken:       () => call<void>('clear_api_token'),
+  hasApiToken:         () => call<boolean>('has_api_token'),
+  verifyApiToken:      () => call<boolean>('verify_api_token'),
+  listZones:           () => call<T.Zone[]>('list_zones'),
 };

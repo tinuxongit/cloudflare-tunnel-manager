@@ -6,6 +6,7 @@ pub mod cloudflared;
 pub mod supervisor;
 pub mod metrics;
 pub mod health;
+pub mod secrets;
 
 use tauri::Manager;
 use crate::state::AppState;
@@ -19,6 +20,7 @@ pub fn run() {
     ).init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir().expect("app_data_dir");
             // cloudflared path: from settings later; for now discover or fall back
@@ -48,6 +50,11 @@ pub fn run() {
             commands::get_settings,
             commands::set_settings,
             commands::start_or_restart_for_page,
+            commands::set_api_token,
+            commands::clear_api_token,
+            commands::has_api_token,
+            commands::list_zones,
+            commands::verify_api_token,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

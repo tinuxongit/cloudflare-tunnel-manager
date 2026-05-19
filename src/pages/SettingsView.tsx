@@ -1,5 +1,6 @@
 import { useStore } from '@/lib/store';
 import { api } from '@/lib/ipc';
+import { ApiTokenSection } from '@/components/ApiTokenSection';
 
 export function SettingsView() {
   const { settings, tunnels, cloudflared, refreshSettings } = useStore();
@@ -16,46 +17,63 @@ export function SettingsView() {
       <div className="px-7 py-5 border-b border-border-subtle">
         <h2 className="text-lg font-semibold">Settings</h2>
       </div>
-      <div className="p-7 max-w-2xl space-y-6">
+      <div className="p-7 max-w-2xl space-y-8">
 
-        <Row label="Tunnel grouping mode" help="shared = one cloudflared proc for all pages. isolated = one proc per page.">
-          <select value={settings.grouping_mode}
-            onChange={e => set('grouping_mode', e.target.value)}
-            className="bg-bg border border-border rounded-md px-3 py-1.5 text-sm font-mono">
-            <option value="shared">shared</option>
-            <option value="isolated">isolated</option>
-          </select>
-        </Row>
+        <Section title="Cloudflare access">
+          <ApiTokenSection />
+        </Section>
 
-        <Row label="Shared tunnel UUID" help="Used in shared mode to host all pages.">
-          <select value={settings.shared_tunnel_uuid ?? ''}
-            onChange={e => set('shared_tunnel_uuid', e.target.value)}
-            className="bg-bg border border-border rounded-md px-3 py-1.5 text-sm font-mono">
-            <option value="">— pick a tunnel —</option>
-            {tunnels.map(t => <option key={t.uuid} value={t.uuid}>{t.name}</option>)}
-          </select>
-        </Row>
+        <Section title="Tunnels">
+          <Row label="Grouping mode" help="shared = one cloudflared proc for all pages. isolated = one proc per page.">
+            <select value={settings.grouping_mode}
+              onChange={e => set('grouping_mode', e.target.value)}
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-sm font-mono">
+              <option value="shared">shared</option>
+              <option value="isolated">isolated</option>
+            </select>
+          </Row>
 
-        <Row label="cloudflared path" help="Absolute path to cloudflared executable.">
-          <input value={settings.cloudflared_path ?? cloudflared?.path ?? ''}
-            onChange={e => set('cloudflared_path', e.target.value)}
-            className="bg-bg border border-border rounded-md px-3 py-1.5 text-sm font-mono w-full" />
-        </Row>
+          <Row label="Shared tunnel" help="Used in shared mode to host all pages.">
+            <select value={settings.shared_tunnel_uuid ?? ''}
+              onChange={e => set('shared_tunnel_uuid', e.target.value)}
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-sm font-mono">
+              <option value="">— pick a tunnel —</option>
+              {tunnels.map(t => <option key={t.uuid} value={t.uuid}>{t.name}</option>)}
+            </select>
+          </Row>
 
-        <Row label="Theme">
-          <select value={settings.theme} onChange={e => set('theme', e.target.value)}
-            className="bg-bg border border-border rounded-md px-3 py-1.5 text-sm font-mono">
-            <option value="dark">dark</option>
-            <option value="light">light</option>
-            <option value="system">system</option>
-          </select>
-        </Row>
+          <Row label="cloudflared path" help="Absolute path to cloudflared executable.">
+            <input value={settings.cloudflared_path ?? cloudflared?.path ?? ''}
+              onChange={e => set('cloudflared_path', e.target.value)}
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-sm font-mono w-full" />
+          </Row>
+        </Section>
 
-        <Row label="Start on boot">
-          <input type="checkbox" checked={settings.start_on_boot}
-            onChange={e => set('start_on_boot', e.target.checked)} />
-        </Row>
+        <Section title="App">
+          <Row label="Theme">
+            <select value={settings.theme} onChange={e => set('theme', e.target.value)}
+              className="bg-bg border border-border rounded-md px-3 py-1.5 text-sm font-mono">
+              <option value="dark">dark</option>
+              <option value="light">light</option>
+              <option value="system">system</option>
+            </select>
+          </Row>
+          <Row label="Start on boot">
+            <input type="checkbox" checked={settings.start_on_boot}
+              onChange={e => set('start_on_boot', e.target.checked)} />
+          </Row>
+        </Section>
+
       </div>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h3 className="text-[11px] font-mono uppercase tracking-widest text-fg-dim mb-4 pb-2 border-b border-border-subtle">{title}</h3>
+      <div className="space-y-5">{children}</div>
     </div>
   );
 }

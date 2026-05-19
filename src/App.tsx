@@ -10,13 +10,17 @@ import { HealthView } from '@/pages/HealthView';
 import { SettingsView } from '@/pages/SettingsView';
 
 export default function App() {
-  const { view, refreshSystem, refreshPages, refreshTunnels, refreshSettings } = useStore();
+  const { view, refreshSystem, refreshPages, refreshTunnels, refreshSettings, refreshTokenState, refreshZones } = useStore();
 
   useEffect(() => {
     refreshSystem();
     refreshSettings();
     refreshPages();
     refreshTunnels();
+    (async () => {
+      await refreshTokenState();
+      if (useStore.getState().hasToken) await refreshZones();
+    })();
   }, []);
 
   return (

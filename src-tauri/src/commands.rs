@@ -188,3 +188,40 @@ pub async fn start_or_restart_for_page(state: State<'_, AppState>, page_id: i64)
     }
     Ok(())
 }
+
+// --- Cloudflare API token + zones -------------------------------------------
+
+use crate::secrets;
+use crate::cloudflared::api;
+
+#[tauri::command]
+pub fn set_api_token(token: String) -> AppResult<()> {
+    secrets::set(secrets::CF_API_TOKEN, &token)
+        .map_err(|e| crate::error::AppError::Other { message: format!("keyring: {e}") })
+}
+
+#[tauri::command]
+pub fn clear_api_token() -> AppResult<()> {
+    let _ = secrets::delete(secrets::CF_API_TOKEN);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn has_api_token() -> AppResult<bool> {
+    Ok(secrets::has(secrets::CF_API_TOKEN))
+}
+
+#[tauri::command]
+pub async fn verify_api_token() -> AppResult<bool> {
+    let Some(token) = secrets::get(secrets::CF_API_TOKEN) else {
+        return Ok(false);
+    };
+    api::verify_token(&token).await
+}
+
+#[tauri::command]
+pub async fn list_zones() -> AppResult<Vec<api::Zone>> {
+    let token = secrets::get(secrets::CF_API_TOKEN)
+        .ok_or(crate::error::AppError::Other { message: "no API token set".into() })?;
+    api::list_zones(&token).await
+}

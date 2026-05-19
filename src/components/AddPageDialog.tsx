@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/ipc';
 import type { Page, Tunnel } from '@/lib/types';
 import { useStore } from '@/lib/store';
@@ -10,53 +10,93 @@ type Props = {
 };
 
 export function AddPageDialog({ open, onClose, editing }: Props) {
-  const { tunnels, refreshPages, refreshTunnels } = useStore();
-  const [hostname, setHostname] = useState('');
+  const { tunnels, zones, hasToken, refreshPages, refreshTunnels, refreshZones } = useStore();
+
+  // Free-text fallback when no token / no zones loaded
+  const [hostnameRaw, setHostnameRaw] = useState('');
+
+  // Zone-aware form
+  const [subdomain, setSubdomain] = useState('');
+  const [zoneName, setZoneName] = useState('');
+
   const [serviceUrl, setServiceUrl] = useState('http://localhost:3000');
   const [tunnelUuid, setTunnelUuid] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const isEdit = !!editing;
+  const useZoneMode = hasToken && zones.length > 0;
 
+  const finalHostname = useMemo(() => {
+    if (!useZoneMode) return hostnameRaw.trim();
+    const sub = subdomain.trim().replace(/\.+$/, '');
+    return sub ? `${sub}.${zoneName}` : zoneName;
+  }, [useZoneMode, hostnameRaw, subdomain, zoneName]);
+
+  // Reset / preload when dialog opens
   useEffect(() => {
-    if (open) {
-      refreshTunnels();
-      setError(null);
-      if (editing) {
-        setHostname(editing.hostname);
-        setServiceUrl(editing.service_url);
-        setTunnelUuid(editing.tunnel_uuid);
+    if (!open) return;
+    refreshTunnels();
+    if (hasToken) refreshZones();
+    setError(null);
+
+    if (editing) {
+      setHostnameRaw(editing.hostname);
+      setServiceUrl(editing.service_url);
+      setTunnelUuid(editing.tunnel_uuid);
+      // Try to split hostname into subdomain + zone if a zone matches
+      const z = zones.find(z =>
+        editing.hostname === z.name || editing.hostname.endsWith('.' + z.name)
+      );
+      if (z) {
+        setZoneName(z.name);
+        const sub = editing.hostname === z.name
+          ? ''
+          : editing.hostname.slice(0, editing.hostname.length - z.name.length - 1);
+        setSubdomain(sub);
       } else {
-        setHostname('');
-        setServiceUrl('http://localhost:3000');
+        setZoneName('');
+        setSubdomain('');
       }
+    } else {
+      setHostnameRaw('');
+      setServiceUrl('http://localhost:3000');
+      setSubdomain('');
+      setZoneName('');
     }
-  }, [open, editing]);
+  }, [open, editing, hasToken]);
 
   useEffect(() => {
     if (!tunnelUuid && tunnels[0] && !editing) setTunnelUuid(tunnels[0].uuid);
   }, [tunnels, tunnelUuid, editing]);
+
+  useEffect(() => {
+    if (useZoneMode && !zoneName && zones[0]) setZoneName(zones[0].name);
+  }, [useZoneMode, zoneName, zones]);
 
   if (!open) return null;
 
   async function submit() {
     setSubmitting(true); setError(null);
     try {
+      if (!finalHostname) {
+        setError('Hostname is empty.');
+        setSubmitting(false);
+        return;
+      }
       if (isEdit && editing) {
-        // Update existing page. If hostname or tunnel changed, run route_dns for new combo.
-        const hostnameChanged = editing.hostname !== hostname;
+        const hostnameChanged = editing.hostname !== finalHostname;
         const tunnelChanged = editing.tunnel_uuid !== tunnelUuid;
         if (hostnameChanged || tunnelChanged) {
-          await api.routeDns(tunnelUuid, hostname);
+          await api.routeDns(tunnelUuid, finalHostname);
         }
         await api.updatePage(editing.id, {
-          hostname, service_url: serviceUrl, tunnel_uuid: tunnelUuid,
+          hostname: finalHostname, service_url: serviceUrl, tunnel_uuid: tunnelUuid,
         });
         await api.startOrRestartForPage(editing.id);
       } else {
-        await api.routeDns(tunnelUuid, hostname);
-        await api.createPage({ hostname, service_url: serviceUrl, tunnel_uuid: tunnelUuid });
+        await api.routeDns(tunnelUuid, finalHostname);
+        await api.createPage({ hostname: finalHostname, service_url: serviceUrl, tunnel_uuid: tunnelUuid });
       }
       await refreshPages();
       onClose();
@@ -67,12 +107,38 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-[480px] bg-bg-elev border border-border-strong rounded-xl p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="w-[520px] bg-bg-elev border border-border-strong rounded-xl p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
         <h3 className="text-base font-semibold mb-4">{isEdit ? 'Edit page' : 'Add page'}</h3>
+
         <label className="block text-xs font-mono text-fg-dim mb-1">Hostname</label>
-        <input value={hostname} onChange={e => setHostname(e.target.value)}
-          placeholder="example.com"
-          className="w-full bg-bg border border-border rounded-md px-3 py-2 text-sm mb-3 font-mono" />
+        {useZoneMode ? (
+          <div className="flex gap-2 mb-1">
+            <input
+              value={subdomain}
+              onChange={e => setSubdomain(e.target.value)}
+              placeholder="subdomain (optional)"
+              className="flex-1 bg-bg border border-border rounded-md px-3 py-2 text-sm font-mono" />
+            <span className="self-center text-fg-faint font-mono">.</span>
+            <select
+              value={zoneName}
+              onChange={e => setZoneName(e.target.value)}
+              className="bg-bg border border-border rounded-md px-3 py-2 text-sm font-mono min-w-[180px]">
+              {zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}
+            </select>
+          </div>
+        ) : (
+          <input
+            value={hostnameRaw}
+            onChange={e => setHostnameRaw(e.target.value)}
+            placeholder="example.com"
+            className="w-full bg-bg border border-border rounded-md px-3 py-2 text-sm mb-1 font-mono" />
+        )}
+        <div className="text-[10px] text-fg-faint font-mono mb-3">
+          → {finalHostname || '(empty)'}
+          {!hasToken && (
+            <span className="ml-2">· Add a Cloudflare API token in Settings to get a zone dropdown.</span>
+          )}
+        </div>
 
         <label className="block text-xs font-mono text-fg-dim mb-1">Local service URL</label>
         <input value={serviceUrl} onChange={e => setServiceUrl(e.target.value)}
@@ -85,11 +151,11 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
           {tunnels.map((t: Tunnel) => <option key={t.uuid} value={t.uuid}>{t.name} ({t.uuid.slice(0, 8)})</option>)}
         </select>
 
-        {error && <div className="text-red-400 text-xs mb-3">{error}</div>}
+        {error && <div className="text-red-400 text-xs mb-3 font-mono">{error}</div>}
 
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="px-3 py-2 text-sm text-fg-muted hover:text-fg">Cancel</button>
-          <button onClick={submit} disabled={!hostname || !tunnelUuid || submitting}
+          <button onClick={submit} disabled={!finalHostname || !tunnelUuid || submitting}
             className="bg-gradient-to-b from-fg to-fg-muted text-bg rounded-md px-4 py-2 text-xs font-semibold disabled:opacity-40 flex items-center gap-2">
             {submitting && <span className="w-3 h-3 border border-bg border-t-transparent rounded-full animate-spin" />}
             {submitting ? (isEdit ? 'Saving…' : 'Adding…') : (isEdit ? 'Save' : 'Add page')}
