@@ -20,13 +20,6 @@ pub fn run() {
 
     tauri::Builder::default()
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
             let data_dir = app.path().app_data_dir().expect("app_data_dir");
             // cloudflared path: from settings later; for now discover or fall back
             let cf_path = CloudflaredCli::discover()
