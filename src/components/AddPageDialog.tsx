@@ -221,9 +221,13 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-[520px] bg-bg-elev border border-border-strong rounded-xl p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
-        <h3 className="text-base font-semibold mb-4">{isEdit ? 'Edit page' : 'Add page'}</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="w-[520px] max-h-[90vh] bg-bg-elev border border-border-strong rounded-xl shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-6 pt-6 pb-3 border-b border-border-subtle">
+          <h3 className="text-base font-semibold">{isEdit ? 'Edit page' : 'Add page'}</h3>
+        </div>
+
+        <div className="px-6 py-4 overflow-y-auto flex-1">
 
         <label className="block text-xs font-mono text-fg-dim mb-1">Hostname</label>
         {useZoneMode ? (
@@ -332,18 +336,20 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
         </select>
 
         {error && (
-          <div className="text-red-300 text-[11px] mb-3 font-mono break-words bg-red-950/20 border border-red-900/50 rounded p-2">
+          <div className="text-red-300 text-[11px] mb-3 font-mono break-words bg-red-950/20 border border-red-900/50 rounded p-2 max-h-40 overflow-y-auto">
             {error}
             {conflictRetry && (
               <div className="mt-2 text-fg-dim">
-                A DNS record already exists at this hostname. Click <span className="text-fg-muted">Overwrite existing record</span> to replace it
+                A DNS record already exists at this hostname. Click <span className="text-fg-muted">Overwrite existing record</span> below to replace it
                 with the tunnel CNAME. Old record content will be lost.
               </div>
             )}
           </div>
         )}
 
-        <div className="flex justify-end gap-2">
+        </div>{/* end scrollable body */}
+
+        <div className="px-6 py-4 border-t border-border-subtle flex justify-end gap-2 bg-bg-elev rounded-b-xl">
           <button onClick={onClose} className="px-3 py-2 text-sm text-fg-muted hover:text-fg">Cancel</button>
           {conflictRetry && (
             <button onClick={() => submit(true)} disabled={submitting}
