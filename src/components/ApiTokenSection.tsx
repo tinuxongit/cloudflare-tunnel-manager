@@ -5,9 +5,19 @@ import { useStore } from '@/lib/store';
 
 const CREATE_URL = 'https://dash.cloudflare.com/profile/api-tokens?token_id=create';
 
-const REQUIRED_PERMS: { scope: string; name: string; reason: string }[] = [
-  { scope: 'Zone',    name: 'Zone:Read',  reason: 'list your domains for the hostname dropdown' },
-  { scope: 'Zone',    name: 'DNS:Edit',   reason: 'create + replace CNAME records for tunnel routes' },
+// Known Cloudflare permission group IDs (community-discovered, undocumented).
+// If CF stops honoring these in dashboard URL params, the user still lands on
+// the right page and fills the table manually.
+const PG_ZONE_READ  = 'c8fed203ed3043cba015a93ad1616f1f';
+const PG_DNS_EDIT   = '4755a26eedb94da69e1066d98aa820be';
+const AUTOFILL_URL =
+  `https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=` +
+  encodeURIComponent(`["${PG_ZONE_READ}","${PG_DNS_EDIT}"]`) +
+  `&name=` + encodeURIComponent('Cloudflare Tunnel Manager');
+
+const REQUIRED_PERMS: { resource: string; sub: string; action: string; reason: string }[] = [
+  { resource: 'Zone', sub: 'Zone', action: 'Read',  reason: 'list your domains' },
+  { resource: 'Zone', sub: 'DNS',  action: 'Edit',  reason: 'create / replace tunnel CNAMEs' },
 ];
 
 function maskToken(raw: string): string {
@@ -93,30 +103,46 @@ export function ApiTokenSection() {
       )}
 
       {editing && !hasToken && (
-        <div className="space-y-3 bg-bg border border-border-strong rounded-md p-3">
+        <div className="space-y-3 bg-bg border border-border-strong rounded-md p-4">
           <div className="text-[11px] font-mono text-fg-dim uppercase tracking-wider">Step-by-step</div>
-          <ol className="space-y-2 text-[11px] text-fg-muted list-decimal pl-5 leading-relaxed">
+
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => openExternal(AUTOFILL_URL)}
+              className="bg-gradient-to-b from-fg to-fg-muted text-bg rounded px-3 py-2 text-xs font-semibold w-fit">
+              ⚡ Open Cloudflare with permissions pre-filled
+            </button>
+            <button
+              onClick={() => openExternal(CREATE_URL)}
+              className="text-fg-muted hover:text-fg text-[11px] font-mono underline underline-offset-2 w-fit">
+              … or open the blank form manually
+            </button>
+            <div className="text-[10px] text-fg-dim">
+              The auto-fill link uses an undocumented Cloudflare URL parameter. If the page opens
+              empty, fill the form using the steps below.
+            </div>
+          </div>
+
+          <ol className="space-y-3 text-[11px] text-fg-muted list-decimal pl-5 leading-relaxed mt-3">
+            <li><strong className="text-fg">Token name:</strong> anything, e.g. <span className="font-mono">Tunnel Manager</span>.</li>
             <li>
-              Click <button
-                onClick={() => openExternal(CREATE_URL)}
-                className="bg-bg-elev text-fg border border-border-strong rounded px-2 py-0.5 hover:bg-zinc-800 text-[11px] font-mono"
-              >Open Cloudflare → Create token</button> — opens in your browser.
-            </li>
-            <li>
-              Choose template <span className="font-mono text-fg">Create Custom Token</span>, then add these permissions:
+              <strong className="text-fg">Permissions</strong> — add these two rows. Each row has THREE
+              dropdowns: resource type → sub-resource → action. Click <span className="font-mono">+ Add more</span> for the second row.
               <table className="mt-2 w-full text-[11px] font-mono border-collapse">
                 <thead>
                   <tr className="text-fg-dim border-b border-border">
-                    <th className="text-left py-1 pr-3 font-normal">Resource</th>
-                    <th className="text-left py-1 pr-3 font-normal">Permission</th>
+                    <th className="text-left py-1 pr-3 font-normal">1st</th>
+                    <th className="text-left py-1 pr-3 font-normal">2nd</th>
+                    <th className="text-left py-1 pr-3 font-normal">3rd</th>
                     <th className="text-left py-1 font-normal">Why</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {REQUIRED_PERMS.map(p => (
-                    <tr key={p.name} className="border-b border-border-subtle last:border-b-0">
-                      <td className="py-1.5 pr-3 text-fg">{p.scope}</td>
-                      <td className="py-1.5 pr-3 text-fg">{p.name}</td>
+                  {REQUIRED_PERMS.map((p, i) => (
+                    <tr key={i} className="border-b border-border-subtle last:border-b-0">
+                      <td className="py-1.5 pr-3 text-fg">{p.resource}</td>
+                      <td className="py-1.5 pr-3 text-fg">{p.sub}</td>
+                      <td className="py-1.5 pr-3 text-fg">{p.action}</td>
                       <td className="py-1.5 text-fg-dim">{p.reason}</td>
                     </tr>
                   ))}
@@ -124,10 +150,15 @@ export function ApiTokenSection() {
               </table>
             </li>
             <li>
-              Zone resources: <span className="font-mono text-fg">Include → All zones</span> (or specific zones).
+              <strong className="text-fg">Zone Resources:</strong> <span className="font-mono">Include</span> → <span className="font-mono">All zones</span> (default).
             </li>
-            <li>Continue → Create Token → copy the token value (shown once).</li>
-            <li>Paste it below + press Enter (or Save + verify).</li>
+            <li>
+              <strong className="text-fg text-red-300">Client IP Address Filtering:</strong> leave EMPTY.
+              <span className="text-fg-dim"> Setting an IP here is the #1 cause of HTTP 401 on verify.</span>
+            </li>
+            <li><strong className="text-fg">TTL:</strong> leave empty (no expiration).</li>
+            <li>Click <span className="font-mono text-fg">Continue to summary</span> → <span className="font-mono text-fg">Create Token</span>.</li>
+            <li>Copy the token value (shown <strong>once</strong>) → paste below → Enter.</li>
           </ol>
         </div>
       )}
