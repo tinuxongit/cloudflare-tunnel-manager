@@ -4,6 +4,7 @@ import { useStore } from '@/lib/store';
 import { PagesView } from '@/pages/PagesView';
 import { TunnelsView } from '@/pages/TunnelsView';
 import { LogsView } from '@/pages/LogsView';
+import { HealthView } from '@/pages/HealthView';
 
 export default function App() {
   const { view, refreshSystem, refreshPages, refreshTunnels, refreshSettings } = useStore();
@@ -22,7 +23,8 @@ export default function App() {
         {view === 'pages' && <PagesView />}
         {view === 'tunnels' && <TunnelsView />}
         {view === 'logs' && <LogsView />}
-        {view !== 'pages' && view !== 'tunnels' && view !== 'logs' && (
+        {view === 'health' && <HealthView />}
+        {view !== 'pages' && view !== 'tunnels' && view !== 'logs' && view !== 'health' && (
           <div className="p-8 text-fg-dim">View "{view}" coming soon.</div>
         )}
       </main>
