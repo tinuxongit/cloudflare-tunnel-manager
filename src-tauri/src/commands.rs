@@ -215,6 +215,14 @@ pub fn has_api_token() -> AppResult<bool> {
     Ok(secrets::has(secrets::CF_API_TOKEN))
 }
 
+/// Returns the raw token if one is saved. Used by the UI's "reveal" button.
+/// The token never leaves the local machine — same process, no network — so this
+/// is no more sensitive than the keyring read happening anyway.
+#[tauri::command]
+pub fn get_api_token() -> AppResult<Option<String>> {
+    Ok(secrets::get(secrets::CF_API_TOKEN))
+}
+
 #[tauri::command]
 pub async fn verify_api_token() -> AppResult<()> {
     let Some(token) = secrets::get(secrets::CF_API_TOKEN) else {

@@ -10,7 +10,7 @@ type Props = {
 };
 
 export function AddPageDialog({ open, onClose, editing }: Props) {
-  const { tunnels, zones, hasToken, refreshPages, refreshTunnels, refreshZones } = useStore();
+  const { tunnels, zones, hasToken, refreshPages, refreshTunnels, refreshZones, refreshTokenState } = useStore();
 
   // Free-text fallback when no token / no zones loaded
   const [hostnameRaw, setHostnameRaw] = useState('');
@@ -37,7 +37,13 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
   useEffect(() => {
     if (!open) return;
     refreshTunnels();
-    if (hasToken) refreshZones();
+    // Re-check token state every open in case it was just added in Settings,
+    // then load zones if we have a token. refreshZones is best-effort (catches
+    // internally and sets [] on failure).
+    (async () => {
+      await refreshTokenState();
+      if (useStore.getState().hasToken) await refreshZones();
+    })();
     setError(null);
 
     if (editing) {
@@ -137,6 +143,9 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
           → {finalHostname || '(empty)'}
           {!hasToken && (
             <span className="ml-2">· Add a Cloudflare API token in Settings to get a zone dropdown.</span>
+          )}
+          {hasToken && zones.length === 0 && (
+            <span className="ml-2 text-yellow-400">· Token set but no zones loaded — check Settings → Cloudflare access.</span>
           )}
         </div>
 

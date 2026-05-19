@@ -36,6 +36,7 @@ export const api = {
   setApiToken:         (token: string) => call<void>('set_api_token', { token }),
   clearApiToken:       () => call<void>('clear_api_token'),
   hasApiToken:         () => call<boolean>('has_api_token'),
+  getApiToken:         () => call<string | null>('get_api_token'),
   verifyApiToken:      () => call<void>('verify_api_token'),
   listZones:           () => call<T.Zone[]>('list_zones'),
 };

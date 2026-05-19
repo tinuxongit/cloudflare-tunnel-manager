@@ -5,10 +5,17 @@ import { useStore } from '@/lib/store';
 
 const TOKEN_URL = 'https://dash.cloudflare.com/profile/api-tokens';
 
+function maskToken(raw: string): string {
+  if (raw.length <= 12) return '•'.repeat(raw.length);
+  return `${raw.slice(0, 6)}${'•'.repeat(raw.length - 11)}${raw.slice(-5)}`;
+}
+
 export function ApiTokenSection() {
   const { hasToken, zones, refreshTokenState, refreshZones } = useStore();
   const [editing, setEditing] = useState(false);
-  const [token, setToken] = useState('');
+  const [token, setToken] = useState('');         // edit-mode buffer
+  const [savedToken, setSavedToken] = useState(''); // populated when hasToken
+  const [revealed, setRevealed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [zoneError, setZoneError] = useState<string | null>(null);
@@ -16,15 +23,18 @@ export function ApiTokenSection() {
 
   useEffect(() => { refreshTokenState(); }, []);
 
+  // Load the saved token value (for the display field) when hasToken flips true.
+  useEffect(() => {
+    if (!hasToken) { setSavedToken(''); return; }
+    api.getApiToken().then(t => setSavedToken(t ?? ''));
+  }, [hasToken]);
+
   useEffect(() => {
     if (!hasToken) return;
     (async () => {
       setZoneError(null);
-      try {
-        await refreshZones();
-      } catch (e: any) {
-        setZoneError(e?.message ?? String(e));
-      }
+      try { await refreshZones(); }
+      catch (e: any) { setZoneError(e?.message ?? String(e)); }
     })();
   }, [hasToken]);
 
@@ -32,13 +42,12 @@ export function ApiTokenSection() {
     setSaving(true); setError(null);
     try {
       await api.setApiToken(token.trim());
-      // Token saved + verified by backend. Now load zones.
       await refreshTokenState();
       setEditing(false);
       setToken('');
+      setRevealed(false);
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 3500);
-      // Load zones — separate try so a zones failure doesn't undo the saved state.
       try { await refreshZones(); setZoneError(null); }
       catch (e: any) { setZoneError(e?.message ?? String(e)); }
     } catch (e: any) {
@@ -50,6 +59,7 @@ export function ApiTokenSection() {
     if (!confirm('Remove the saved API token? Domain dropdown will go back to free-text hostname entry.')) return;
     await api.clearApiToken();
     await refreshTokenState();
+    setRevealed(false);
     setZoneError(null);
     useStore.setState({ zones: [] });
   }
@@ -59,6 +69,8 @@ export function ApiTokenSection() {
     try { await refreshZones(); }
     catch (e: any) { setZoneError(e?.message ?? String(e)); }
   }
+
+  const showRawValue = editing ? token : (revealed ? savedToken : maskToken(savedToken));
 
   return (
     <div className="space-y-3">
@@ -85,62 +97,64 @@ export function ApiTokenSection() {
         </div>
       )}
 
-      {!editing && hasToken && (
-        <>
-          <div className="flex items-center gap-3 text-xs font-mono flex-wrap">
-            <span className="px-2 py-1 bg-green-950/40 border border-green-700/40 text-green-300 rounded">
-              ✓ token saved
-            </span>
-            {zoneError
-              ? <span className="px-2 py-1 bg-red-950/40 border border-red-700/40 text-red-300 rounded">
-                  zones: error
-                </span>
-              : <span className="px-2 py-1 bg-bg border border-border-strong text-fg-muted rounded">
-                  {zones.length} zone{zones.length === 1 ? '' : 's'}
-                </span>}
-            <button onClick={reloadZones} className="text-fg-muted hover:text-fg">↻ Reload zones</button>
-            <button onClick={() => setEditing(true)} className="text-fg-muted hover:text-fg">Replace</button>
-            <button onClick={clear} className="text-red-400 hover:text-red-300">Remove</button>
-          </div>
+      {/* Always render the field. Read-only when not editing. */}
+      <div className="flex gap-2 items-center">
+        <input
+          type={revealed || editing ? 'text' : 'password'}
+          value={showRawValue}
+          readOnly={!editing}
+          autoFocus={editing}
+          onChange={e => setToken(e.target.value)}
+          onKeyDown={e => { if (editing && e.key === 'Enter' && token && !saving) save(); }}
+          placeholder={hasToken ? '' : 'paste token here, press Enter to save'}
+          className={`flex-1 bg-bg border border-border rounded-md px-3 py-2 text-sm font-mono
+            ${!editing ? 'text-fg-muted cursor-default' : ''}`}
+        />
+        {hasToken && !editing && (
+          <button
+            type="button"
+            title={revealed ? 'Hide' : 'Reveal'}
+            onClick={() => setRevealed(v => !v)}
+            className="w-9 h-9 flex items-center justify-center border border-border rounded-md text-fg-muted hover:text-fg hover:bg-bg-elev"
+          >
+            {revealed ? <EyeOff /> : <Eye />}
+          </button>
+        )}
+      </div>
 
-          {zoneError && (
-            <div className="text-[11px] text-red-300 font-mono break-words bg-red-950/20 border border-red-900/50 rounded p-2">
-              {zoneError}
-              <div className="text-fg-dim mt-1">
-                Token is valid (it verified) but listing zones failed. Most common cause: token lacks
-                <span className="text-fg-muted"> Zone &gt; Zone &gt; Read</span>. Recreate the token with that permission
-                across <span className="text-fg-muted">All zones</span> and click ↻ Reload zones.
-              </div>
-            </div>
-          )}
-
-          {!zoneError && hasToken && zones.length === 0 && (
-            <div className="text-[11px] text-yellow-300 font-mono bg-yellow-950/20 border border-yellow-900/50 rounded p-2">
-              No zones returned. Your token is valid but either has no Zone:Read scope, or your account has no zones.
-            </div>
-          )}
-        </>
+      {error && (
+        <div className="text-red-300 text-[11px] font-mono break-words bg-red-950/20 border border-red-900/50 rounded p-2">
+          {error}
+        </div>
       )}
 
-      {!editing && !hasToken && (
-        <button onClick={() => setEditing(true)}
-          className="bg-gradient-to-b from-fg to-fg-muted text-bg rounded-md px-3 py-1.5 text-xs font-semibold">
-          Add token
-        </button>
-      )}
+      <div className="flex gap-2 items-center flex-wrap">
+        {!editing && !hasToken && (
+          <button onClick={() => { setEditing(true); setToken(''); }}
+            className="bg-gradient-to-b from-fg to-fg-muted text-bg rounded-md px-3 py-1.5 text-xs font-semibold">
+            Add token
+          </button>
+        )}
 
-      {editing && (
-        <div className="space-y-2">
-          <input
-            type="password"
-            autoFocus
-            value={token}
-            onChange={e => setToken(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && token && !saving) save(); }}
-            placeholder="paste token here, press Enter to save"
-            className="w-full bg-bg border border-border rounded-md px-3 py-2 text-sm font-mono" />
-          {error && <div className="text-red-300 text-[11px] font-mono break-words bg-red-950/20 border border-red-900/50 rounded p-2">{error}</div>}
-          <div className="flex gap-2">
+        {!editing && hasToken && (
+          <>
+            <button onClick={() => { setEditing(true); setToken(''); setRevealed(false); }}
+              className="bg-gradient-to-b from-fg to-fg-muted text-bg rounded-md px-3 py-1.5 text-xs font-semibold">
+              Replace
+            </button>
+            <button onClick={clear}
+              className="text-red-400 hover:text-red-300 text-xs px-3 py-1.5">
+              Remove
+            </button>
+            <button onClick={reloadZones}
+              className="text-fg-muted hover:text-fg text-xs px-3 py-1.5">
+              ↻ Reload zones
+            </button>
+          </>
+        )}
+
+        {editing && (
+          <>
             <button onClick={save} disabled={!token || saving}
               className="bg-gradient-to-b from-fg to-fg-muted text-bg rounded-md px-3 py-1.5 text-xs font-semibold disabled:opacity-40 flex items-center gap-2">
               {saving && <span className="w-3 h-3 border border-bg border-t-transparent rounded-full animate-spin" />}
@@ -148,7 +162,39 @@ export function ApiTokenSection() {
             </button>
             <button onClick={() => { setEditing(false); setToken(''); setError(null); }}
               className="px-3 py-1.5 text-xs text-fg-muted hover:text-fg">Cancel</button>
+          </>
+        )}
+      </div>
+
+      {hasToken && (
+        <div className="flex items-center gap-3 text-xs font-mono flex-wrap">
+          <span className="px-2 py-1 bg-green-950/40 border border-green-700/40 text-green-300 rounded">
+            ✓ saved
+          </span>
+          {zoneError
+            ? <span className="px-2 py-1 bg-red-950/40 border border-red-700/40 text-red-300 rounded">
+                zones: error
+              </span>
+            : <span className="px-2 py-1 bg-bg border border-border-strong text-fg-muted rounded">
+                {zones.length} zone{zones.length === 1 ? '' : 's'}
+              </span>}
+        </div>
+      )}
+
+      {zoneError && (
+        <div className="text-[11px] text-red-300 font-mono break-words bg-red-950/20 border border-red-900/50 rounded p-2">
+          {zoneError}
+          <div className="text-fg-dim mt-1">
+            Token verified but listing zones failed. Most common cause: token lacks
+            <span className="text-fg-muted"> Zone &gt; Zone &gt; Read</span>. Recreate with that permission
+            across <span className="text-fg-muted">All zones</span> and click ↻ Reload zones.
           </div>
+        </div>
+      )}
+
+      {!zoneError && hasToken && zones.length === 0 && (
+        <div className="text-[11px] text-yellow-300 font-mono bg-yellow-950/20 border border-yellow-900/50 rounded p-2">
+          No zones returned. Token is valid but either lacks Zone:Read scope, or your account has no zones.
         </div>
       )}
 
@@ -166,6 +212,25 @@ export function ApiTokenSection() {
         </details>
       )}
     </div>
+  );
+}
+
+function Eye() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+function EyeOff() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.6 18.6 0 0 1 4.06-5.94" />
+      <path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.6 18.6 0 0 1-2.16 3.19" />
+      <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+      <line x1="1" y1="1" x2="23" y2="23" />
+    </svg>
   );
 }
 

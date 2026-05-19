@@ -53,6 +53,7 @@ pub fn run() {
             commands::set_api_token,
             commands::clear_api_token,
             commands::has_api_token,
+            commands::get_api_token,
             commands::list_zones,
             commands::verify_api_token,
         ])
