@@ -91,8 +91,20 @@ use serde::Serialize;
 pub async fn get_status(state: State<'_, AppState>, tunnel_uuid: String) -> AppResult<RuntimeStatus> {
     let port = state.supervisor.metrics_port(&tunnel_uuid);
     match port {
-        None    => Ok(RuntimeStatus { state: "stopped", ..Default::default() }),
-        Some(p) => metrics::scraper::fetch(p).await,
+        None => Ok(RuntimeStatus { state: "stopped", ..Default::default() }),
+        Some(p) => {
+            // If the proc died (bad config, crash), supervisor.is_running returns false.
+            // Report "error" so the UI stops showing "starting" forever.
+            if !state.supervisor.is_running(&tunnel_uuid) {
+                return Ok(RuntimeStatus { state: "error", ..Default::default() });
+            }
+            // Proc alive — try the metrics endpoint. If it's not up yet (proc starting),
+            // surface "starting" instead of returning an error.
+            match metrics::scraper::fetch(p).await {
+                Ok(s) => Ok(s),
+                Err(_) => Ok(RuntimeStatus { state: "starting", ..Default::default() }),
+            }
+        }
     }
 }
 

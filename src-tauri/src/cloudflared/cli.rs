@@ -88,15 +88,64 @@ struct RawTunnel {
     credentials_file: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct WrappedList {
+    value: Vec<RawTunnel>,
+}
+
+/// Resolve credentials path for a tunnel UUID.
+/// cloudflared 2024+ no longer emits `credentials_file` in `tunnel list --output json`.
+/// Fall back to the standard `<home>/.cloudflared/<uuid>.json` location.
+fn default_cred_path(uuid: &str) -> String {
+    if let Some(home) = dirs::home_dir() {
+        let p = home.join(".cloudflared").join(format!("{uuid}.json"));
+        if p.exists() {
+            return p.display().to_string();
+        }
+        // Return the expected path even if missing — error message later will be useful.
+        return p.display().to_string();
+    }
+    format!(".cloudflared/{uuid}.json")
+}
+
 pub fn parse_tunnel_list_json(s: &str) -> AppResult<Vec<Tunnel>> {
-    let raw: Vec<RawTunnel> = serde_json::from_str(s)
-        .map_err(|e| AppError::Other { message: format!("parse tunnel list: {e}") })?;
-    Ok(raw.into_iter().map(|r| Tunnel {
-        uuid: r.id,
-        name: r.name,
-        cred_path: r.credentials_file.unwrap_or_default(),
-        managed: false,
-        last_seen: chrono_now(),
+    // cloudflared may emit log lines (e.g. "outdated version" warning) to stdout
+    // before the actual JSON payload. Skip lines until we find one starting with
+    // '[' (legacy raw array) or '{' (wrapped object).
+    let payload = s.lines()
+        .skip_while(|l| !l.trim_start().starts_with('[') && !l.trim_start().starts_with("{\"value\""))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let payload = if payload.is_empty() { s } else { &payload };
+
+    let raw: Vec<RawTunnel> = if let Ok(arr) = serde_json::from_str::<Vec<RawTunnel>>(payload) {
+        arr
+    } else if let Ok(wrapped) = serde_json::from_str::<WrappedList>(payload) {
+        wrapped.value
+    } else {
+        // Try harder: take everything from the first '[' or '{' to the end.
+        let start = payload.find('[').or_else(|| payload.find('{'));
+        if let Some(i) = start {
+            let slice = &payload[i..];
+            serde_json::from_str::<Vec<RawTunnel>>(slice)
+                .or_else(|_| serde_json::from_str::<WrappedList>(slice).map(|w| w.value))
+                .map_err(|e| AppError::Other { message: format!("parse tunnel list: {e}") })?
+        } else {
+            return Err(AppError::Other { message: "tunnel list: no JSON payload found".into() });
+        }
+    };
+
+    Ok(raw.into_iter().map(|r| {
+        let cred_path = r.credentials_file
+            .filter(|p| !p.is_empty())
+            .unwrap_or_else(|| default_cred_path(&r.id));
+        Tunnel {
+            uuid: r.id,
+            name: r.name,
+            cred_path,
+            managed: false,
+            last_seen: chrono_now(),
+        }
     }).collect())
 }
 
@@ -119,5 +168,18 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].name, "alpha");
         assert_eq!(out[1].uuid, "def-456");
+    }
+
+    #[test]
+    fn parse_wrapped_list_with_log_prefix() {
+        // Real cloudflared 2025.8.1+ output: warn line on stdout, then wrapped object.
+        let fixture = r#"{"level":"warn","message":"Your version 2025.8.1 is outdated"}
+{"value":[{"id":"56ae32ca-b365-4fea-99a9-88059c64bab6","name":"Alpha","created_at":"2026-05-19T13:43:38Z","connections":[]}],"Count":1}"#;
+        let out = parse_tunnel_list_json(fixture).unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].name, "Alpha");
+        assert_eq!(out[0].uuid, "56ae32ca-b365-4fea-99a9-88059c64bab6");
+        // cred_path falls back to ~/.cloudflared/<uuid>.json
+        assert!(out[0].cred_path.ends_with("56ae32ca-b365-4fea-99a9-88059c64bab6.json"));
     }
 }

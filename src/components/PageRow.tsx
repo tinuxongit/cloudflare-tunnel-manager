@@ -13,10 +13,16 @@ type Props = {
 
 export function PageRow({ page, status, busy, onToggle, onEdit, onDelete }: Props) {
   const on = page.enabled && status?.state === 'running';
+  const errored = page.enabled && status?.state === 'error';
+  const starting = page.enabled && !on && !errored;
+  const dotState: 'on' | 'off' | 'starting' | 'error' =
+    on ? 'on' : errored ? 'error' : starting ? 'starting' : 'off';
   const stateLabel = busy
     ? 'working…'
     : on ? 'online'
-    : page.enabled ? 'starting' : 'off';
+    : errored ? 'error — check logs'
+    : starting ? 'starting'
+    : 'off';
 
   return (
     <div className={`grid grid-cols-[50px_1fr_130px_140px_90px_36px] gap-5 items-center px-4 py-4 rounded-xl border border-transparent transition relative
@@ -41,10 +47,11 @@ export function PageRow({ page, status, busy, onToggle, onEdit, onDelete }: Prop
         </div>
       </div>
 
-      <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-fg-muted">
+      <div className={`flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider
+        ${errored ? 'text-red-400' : 'text-fg-muted'}`}>
         {busy
           ? <span className="w-3 h-3 border border-fg-muted border-t-transparent rounded-full animate-spin" />
-          : <StatusDot state={on ? 'on' : 'off'} />}
+          : <StatusDot state={dotState} />}
         {stateLabel}
       </div>
 
