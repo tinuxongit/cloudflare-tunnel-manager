@@ -1,17 +1,8 @@
-pub mod error;
-pub mod state;
 pub mod commands;
-pub mod db;
-pub mod cloudflared;
-pub mod supervisor;
-pub mod metrics;
-pub mod health;
-pub mod secrets;
-pub mod local_server;
 
 use tauri::Manager;
-use crate::state::AppState;
-use crate::cloudflared::cli::CloudflaredCli;
+use cf_tunnel_core::state::AppState;
+use cf_tunnel_core::cloudflared::cli::CloudflaredCli;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

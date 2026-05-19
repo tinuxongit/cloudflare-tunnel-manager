@@ -1,8 +1,8 @@
 use tauri::State;
-use crate::state::AppState;
-use crate::db::models::*;
-use crate::db::queries;
-use crate::error::AppResult;
+use cf_tunnel_core::state::AppState;
+use cf_tunnel_core::db::models::*;
+use cf_tunnel_core::db::queries;
+use cf_tunnel_core::error::AppResult;
 
 #[tauri::command]
 pub fn list_pages(state: State<AppState>) -> AppResult<Vec<Page>> {
@@ -36,7 +36,7 @@ pub fn toggle_page(state: State<AppState>, id: i64, on: bool) -> AppResult<Page>
     // NOTE: actual proc restart is wired in Task 19 (orchestrator)
 }
 
-use crate::cloudflared::cli::CloudflaredCli;
+use cf_tunnel_core::cloudflared::cli::CloudflaredCli;
 
 #[tauri::command]
 pub fn list_tunnels(state: State<AppState>) -> AppResult<Vec<Tunnel>> {
@@ -91,16 +91,16 @@ pub async fn route_dns_via_api(
     tunnel_uuid: String,
     overwrite: Option<bool>,
 ) -> AppResult<()> {
-    let creds = crate::cloudflared::api::resolve_credentials()?;
-    crate::cloudflared::api::upsert_tunnel_cname(
+    let creds = cf_tunnel_core::cloudflared::api::resolve_credentials()?;
+    cf_tunnel_core::cloudflared::api::upsert_tunnel_cname(
         &creds, &zone_id, &hostname, &tunnel_uuid, overwrite.unwrap_or(false),
     ).await
 }
 
-use crate::metrics::{self, RuntimeStatus};
-use crate::supervisor::log_buffer::LogLine;
-use crate::health::{check::check as service_check, ServiceHealth};
-use crate::cloudflared::cert;
+use cf_tunnel_core::metrics::{self, RuntimeStatus};
+use cf_tunnel_core::supervisor::log_buffer::LogLine;
+use cf_tunnel_core::health::{check::check as service_check, ServiceHealth};
+use cf_tunnel_core::cloudflared::cert;
 use serde::Serialize;
 
 #[tauri::command]
@@ -160,7 +160,7 @@ pub fn cloudflared_info(state: State<AppState>) -> AppResult<CloudflaredInfo> {
     })
 }
 
-use crate::local_server;
+use cf_tunnel_core::local_server;
 
 #[tauri::command]
 pub fn detect_folder(path: String) -> AppResult<local_server::detect::Detected> {
@@ -175,7 +175,7 @@ pub fn write_setup_guide(path: String) -> AppResult<String> {
 
 #[tauri::command]
 pub fn get_local_logs(state: State<AppState>, page_id: i64, last_n: usize)
-    -> AppResult<Vec<crate::supervisor::log_buffer::LogLine>>
+    -> AppResult<Vec<cf_tunnel_core::supervisor::log_buffer::LogLine>>
 {
     Ok(state.local.logs(page_id, last_n))
 }
@@ -197,7 +197,7 @@ pub fn set_settings(state: State<AppState>, patch: SettingsPatch) -> AppResult<S
     queries::set_settings(&g, &patch)
 }
 
-use crate::cloudflared::config_gen;
+use cf_tunnel_core::cloudflared::config_gen;
 
 #[tauri::command]
 pub async fn start_or_restart_for_page(state: State<'_, AppState>, page_id: i64) -> AppResult<()> {
@@ -224,7 +224,7 @@ pub async fn start_or_restart_for_page(state: State<'_, AppState>, page_id: i64)
             };
             state.local.stop(page_id);
             let dir_path = std::path::Path::new(dir);
-            let port = if cmd == crate::local_server::EMBEDDED_STATIC {
+            let port = if cmd == cf_tunnel_core::local_server::EMBEDDED_STATIC {
                 state.local.start_static(page_id, dir_path, port).await?
             } else {
                 state.local.start_external(page_id, dir_path, cmd, port)?
@@ -265,8 +265,8 @@ pub async fn start_or_restart_for_page(state: State<'_, AppState>, page_id: i64)
 
 // --- Cloudflare API token + zones -------------------------------------------
 
-use crate::secrets;
-use crate::cloudflared::api;
+use cf_tunnel_core::secrets;
+use cf_tunnel_core::cloudflared::api;
 
 #[tauri::command]
 pub async fn set_api_token(token: String) -> AppResult<()> {
@@ -275,7 +275,7 @@ pub async fn set_api_token(token: String) -> AppResult<()> {
 
     // 2. Persist to OS keyring.
     secrets::set(secrets::CF_API_TOKEN, &token)
-        .map_err(|e| crate::error::AppError::Other { message: format!("keyring write: {e}") })?;
+        .map_err(|e| cf_tunnel_core::error::AppError::Other { message: format!("keyring write: {e}") })?;
 
     // 3. Read back to confirm the credential survived the write. Catches the
     //    case where the OS credential store silently rejects the write or
@@ -283,10 +283,10 @@ pub async fn set_api_token(token: String) -> AppResult<()> {
     //    profiles, sandboxed shells, missing credentials service on Linux).
     match secrets::get(secrets::CF_API_TOKEN) {
         Some(stored) if stored == token => Ok(()),
-        Some(_) => Err(crate::error::AppError::Other {
+        Some(_) => Err(cf_tunnel_core::error::AppError::Other {
             message: "keyring read-back returned a different value than was written".into(),
         }),
-        None => Err(crate::error::AppError::Other {
+        None => Err(cf_tunnel_core::error::AppError::Other {
             message: "keyring write succeeded but read-back returned nothing — credential did not persist. Check Windows Credential Manager access.".into(),
         }),
     }
@@ -314,7 +314,7 @@ pub fn get_api_token() -> AppResult<Option<String>> {
 #[tauri::command]
 pub async fn verify_api_token() -> AppResult<()> {
     let Some(token) = secrets::get(secrets::CF_API_TOKEN) else {
-        return Err(crate::error::AppError::Other { message: "no token saved".into() });
+        return Err(cf_tunnel_core::error::AppError::Other { message: "no token saved".into() });
     };
     api::verify_token(&token).await
 }
@@ -332,13 +332,13 @@ pub async fn set_global_key(email: String, key: String) -> AppResult<()> {
     let creds = api::Credentials::GlobalKey { email: email.clone(), key: key.clone() };
     api::verify(&creds).await?;
     secrets::set(secrets::CF_GLOBAL_EMAIL, &email)
-        .map_err(|e| crate::error::AppError::Other { message: format!("keyring write (email): {e}") })?;
+        .map_err(|e| cf_tunnel_core::error::AppError::Other { message: format!("keyring write (email): {e}") })?;
     secrets::set(secrets::CF_GLOBAL_KEY, &key)
-        .map_err(|e| crate::error::AppError::Other { message: format!("keyring write (key): {e}") })?;
+        .map_err(|e| cf_tunnel_core::error::AppError::Other { message: format!("keyring write (key): {e}") })?;
     // Read-back sanity check
     match (secrets::get(secrets::CF_GLOBAL_EMAIL), secrets::get(secrets::CF_GLOBAL_KEY)) {
         (Some(e), Some(k)) if e == email && k == key => Ok(()),
-        _ => Err(crate::error::AppError::Other {
+        _ => Err(cf_tunnel_core::error::AppError::Other {
             message: "keyring read-back failed for global key — credential did not persist.".into(),
         }),
     }

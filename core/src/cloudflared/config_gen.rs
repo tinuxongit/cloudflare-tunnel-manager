@@ -55,7 +55,8 @@ mod tests {
 
     fn page(id: i64, host: &str, port: u16) -> Page {
         Page { id, hostname: host.into(), service_url: format!("http://localhost:{port}"),
-               tunnel_uuid: "uuid-1".into(), enabled: true, created_at: "".into() }
+               tunnel_uuid: "uuid-1".into(), enabled: true, created_at: "".into(),
+               source_dir: None, run_command: None, assigned_port: None }
     }
 
     #[test]
