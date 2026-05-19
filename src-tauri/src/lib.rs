@@ -54,6 +54,7 @@ pub fn run() {
             commands::cloudflared_info,
             commands::get_settings,
             commands::set_settings,
+            commands::start_or_restart_for_page,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

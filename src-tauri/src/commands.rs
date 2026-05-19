@@ -143,3 +143,36 @@ pub fn set_settings(state: State<AppState>, patch: SettingsPatch) -> AppResult<S
     let g = state.db.lock();
     queries::set_settings(&g, &patch)
 }
+
+use crate::cloudflared::config_gen;
+
+#[tauri::command]
+pub async fn start_or_restart_for_page(state: State<'_, AppState>, page_id: i64) -> AppResult<()> {
+    // 1. load page + sibling pages on same tunnel
+    let (tunnel_uuid, enabled_siblings, cred_path) = {
+        let g = state.db.lock();
+        let page = queries::get_page(&g, page_id)?;
+        let all = queries::list_pages(&g)?;
+        let siblings: Vec<Page> = all.into_iter()
+            .filter(|p| p.tunnel_uuid == page.tunnel_uuid && p.enabled)
+            .collect();
+        let tunnels = queries::list_tunnels(&g)?;
+        let cred = tunnels.iter()
+            .find(|t| t.uuid == page.tunnel_uuid)
+            .map(|t| t.cred_path.clone())
+            .unwrap_or_default();
+        (page.tunnel_uuid, siblings, cred)
+    };
+
+    // 2. generate yaml
+    let yaml = config_gen::build_yaml(&tunnel_uuid, &cred_path, &enabled_siblings);
+    let cfg_path = config_gen::write_yaml(&state.configs_dir, &tunnel_uuid, &yaml)?;
+
+    // 3. restart proc
+    if enabled_siblings.is_empty() {
+        state.supervisor.stop(&tunnel_uuid);
+    } else {
+        state.supervisor.restart(&tunnel_uuid, &cfg_path)?;
+    }
+    Ok(())
+}
