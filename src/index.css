@@ -7,10 +7,29 @@
 
 :root { color-scheme: dark; }
 
-body {
+html, body, #root {
   margin: 0;
-  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  border: 0;
   background: #0a0a0c;
   color: #fafafa;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+*:focus { outline: none; }
+*:focus-visible { outline: none; }
+
+/* Disable native scrollbars (we keep custom scrolling on main panel only) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #2a2a30;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover { background: #3f3f46; }

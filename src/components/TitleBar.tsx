@@ -12,15 +12,20 @@ export function TitleBar() {
   }, []);
 
   return (
-    <div
-      data-tauri-drag-region
-      className="h-9 flex items-center justify-between px-3 bg-side border-b border-border-strong select-none"
-    >
-      <div data-tauri-drag-region className="flex items-center gap-2 flex-1 text-[11px] font-mono text-fg-dim tracking-wide">
+    <div className="h-8 flex items-stretch bg-bg select-none relative">
+      {/* Drag region — fills the whole bar; buttons sit on top and intercept clicks */}
+      <div
+        data-tauri-drag-region
+        className="absolute inset-0"
+      />
+      <div
+        data-tauri-drag-region
+        className="flex items-center gap-2 px-3 flex-1 text-[11px] font-mono text-fg-dim tracking-wide relative pointer-events-none"
+      >
         <span className="w-4 h-4 rounded bg-gradient-to-br from-fg to-fg-muted text-bg flex items-center justify-center font-bold text-[10px]">⌘</span>
         Cloudflare Tunnel Manager
       </div>
-      <div className="flex items-center gap-px">
+      <div className="flex items-stretch relative">
         <CtlBtn onClick={() => win.minimize()} label="Minimize">
           <svg width="10" height="10" viewBox="0 0 10 10"><rect x="0" y="4.5" width="10" height="1" fill="currentColor"/></svg>
         </CtlBtn>
@@ -53,7 +58,7 @@ function CtlBtn({ onClick, children, label, danger }: { onClick: () => void; chi
     <button
       onClick={onClick}
       aria-label={label}
-      className={`w-11 h-9 flex items-center justify-center text-fg-muted transition
+      className={`w-11 flex items-center justify-center text-fg-muted transition relative z-10
         ${danger ? 'hover:bg-red-600 hover:text-white' : 'hover:bg-bg-elev hover:text-fg'}`}
     >
       {children}
