@@ -4,6 +4,12 @@ import { api } from '@/lib/ipc';
 import { useStore } from '@/lib/store';
 
 const TOKEN_URL = 'https://dash.cloudflare.com/profile/api-tokens';
+const CREATE_URL = 'https://dash.cloudflare.com/profile/api-tokens?token_id=create';
+
+const REQUIRED_PERMS: { scope: string; name: string; reason: string }[] = [
+  { scope: 'Zone',    name: 'Zone:Read',  reason: 'list your domains for the hostname dropdown' },
+  { scope: 'Zone',    name: 'DNS:Edit',   reason: 'create + replace CNAME records for tunnel routes' },
+];
 
 function maskToken(raw: string): string {
   if (raw.length <= 12) return '•'.repeat(raw.length);
@@ -76,24 +82,54 @@ export function ApiTokenSection() {
     <div className="space-y-3">
       <div className="text-sm font-medium">Cloudflare API token</div>
       <div className="text-[11px] text-fg-dim leading-relaxed">
-        Optional. Lets the app list your owned domains for the Add page dialog (zone dropdown
-        instead of free-text). Token is stored in the OS keyring (Windows Credential Manager),
-        not in the SQLite DB.
-        <br />
-        <span className="text-fg-muted">Get a token: </span>
-        <a
-          href={TOKEN_URL}
-          onClick={(e) => { e.preventDefault(); openExternal(TOKEN_URL); }}
-          className="text-fg underline underline-offset-2 hover:text-white font-mono"
-        >{TOKEN_URL}</a>
-        <br />
-        Use template <span className="font-mono text-fg-muted">"Read all resources"</span> or a
-        custom token with permission <span className="font-mono text-fg-muted">Zone &gt; Zone &gt; Read</span> across all zones.
+        Scoped API token. Lets the app list your domains and create/replace CNAME records on the
+        zone you pick — no cert.pem zone-guessing. Stored in the OS keyring, not in the SQLite DB.
+        Click <span className="text-fg-muted">Add token</span> below for a step-by-step walkthrough.
       </div>
 
       {justSaved && (
         <div className="text-xs font-mono px-3 py-2 bg-green-950/40 border border-green-700/40 text-green-300 rounded">
           ✓ Token verified and saved to keyring.
+        </div>
+      )}
+
+      {editing && !hasToken && (
+        <div className="space-y-3 bg-bg border border-border-strong rounded-md p-3">
+          <div className="text-[11px] font-mono text-fg-dim uppercase tracking-wider">Step-by-step</div>
+          <ol className="space-y-2 text-[11px] text-fg-muted list-decimal pl-5 leading-relaxed">
+            <li>
+              Click <button
+                onClick={() => openExternal(CREATE_URL)}
+                className="bg-bg-elev text-fg border border-border-strong rounded px-2 py-0.5 hover:bg-zinc-800 text-[11px] font-mono"
+              >Open Cloudflare → Create token</button> — opens in your browser.
+            </li>
+            <li>
+              Choose template <span className="font-mono text-fg">Create Custom Token</span>, then add these permissions:
+              <table className="mt-2 w-full text-[11px] font-mono border-collapse">
+                <thead>
+                  <tr className="text-fg-dim border-b border-border">
+                    <th className="text-left py-1 pr-3 font-normal">Resource</th>
+                    <th className="text-left py-1 pr-3 font-normal">Permission</th>
+                    <th className="text-left py-1 font-normal">Why</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {REQUIRED_PERMS.map(p => (
+                    <tr key={p.name} className="border-b border-border-subtle last:border-b-0">
+                      <td className="py-1.5 pr-3 text-fg">{p.scope}</td>
+                      <td className="py-1.5 pr-3 text-fg">{p.name}</td>
+                      <td className="py-1.5 text-fg-dim">{p.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </li>
+            <li>
+              Zone resources: <span className="font-mono text-fg">Include → All zones</span> (or specific zones).
+            </li>
+            <li>Continue → Create Token → copy the token value (shown once).</li>
+            <li>Paste it below + press Enter (or Save + verify).</li>
+          </ol>
         </div>
       )}
 
