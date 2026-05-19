@@ -10,13 +10,17 @@ use serde::Serialize;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DetectedKind {
-    NodeStart,        // package.json with a "start" script
-    NodeStatic,       // package.json without start, or just html files
+    NodeStart,        // package.json with a "start" script — we extract the actual command
+    NodeStatic,       // package.json without start — serve via embedded static server
     Python,           // main.py with Flask/Uvicorn-ish hints
-    StaticFolder,     // any folder, fall back to a static server
+    StaticFolder,     // serve via embedded static server
     Empty,            // folder exists but has nothing recognizable
     NotFound,         // path doesn't exist
 }
+
+/// Sentinel that signals "the supervisor should run its embedded static-file
+/// server for this folder instead of spawning a subprocess".
+pub const EMBEDDED_STATIC: &str = "__embedded_static__";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Detected {
@@ -39,22 +43,25 @@ pub fn detect(dir: &Path) -> Detected {
     if pkg.exists() {
         if let Ok(text) = std::fs::read_to_string(&pkg) {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-                let has_start = json.get("scripts")
+                if let Some(start) = json.get("scripts")
                     .and_then(|s| s.get("start"))
-                    .is_some();
-                if has_start {
+                    .and_then(|v| v.as_str())
+                {
+                    // Extract the literal command (e.g. "node server.js") and run it
+                    // directly. Avoids the cmd.exe -> npm.cmd -> node wrapper chain
+                    // that costs ~120 MB of zombie shells per page.
                     return Detected {
                         kind: DetectedKind::NodeStart,
-                        command: "npm start".into(),
-                        note: "Node project — runs `npm start` with PORT={PORT}".into(),
+                        command: start.to_string(),
+                        note: format!("Node project — runs `{start}` directly (skips npm wrapper) with PORT={{PORT}}"),
                     };
                 }
             }
         }
         return Detected {
             kind: DetectedKind::NodeStatic,
-            command: "npx --yes serve -p {PORT} -L .".into(),
-            note: "Node project without start script — serves as static via `npx serve`".into(),
+            command: EMBEDDED_STATIC.into(),
+            note: "Node project without start script — served by built-in static server".into(),
         };
     }
 
@@ -73,20 +80,19 @@ pub fn detect(dir: &Path) -> Detected {
     if has_index {
         return Detected {
             kind: DetectedKind::StaticFolder,
-            command: "npx --yes serve -p {PORT} -L .".into(),
-            note: "Static site (index.html present) — `npx serve`".into(),
+            command: EMBEDDED_STATIC.into(),
+            note: "Static site (index.html present) — served by built-in static server".into(),
         };
     }
 
-    // Empty-ish folder but still try to serve as static.
     let any_files = std::fs::read_dir(dir)
         .map(|rd| rd.flatten().next().is_some())
         .unwrap_or(false);
     if any_files {
         return Detected {
             kind: DetectedKind::StaticFolder,
-            command: "npx --yes serve -p {PORT} -L .".into(),
-            note: "No recognized entry — falling back to static serve".into(),
+            command: EMBEDDED_STATIC.into(),
+            note: "No recognized entry — falling back to built-in static server".into(),
         };
     }
 

@@ -222,9 +222,13 @@ pub async fn start_or_restart_for_page(state: State<'_, AppState>, page_id: i64)
                 Some(p) => p,
                 None    => state.local.alloc_port()?,
             };
-            // Stop any old proc for this page first to free the port we want.
             state.local.stop(page_id);
-            let port = state.local.start(page_id, std::path::Path::new(dir), cmd, port)?;
+            let dir_path = std::path::Path::new(dir);
+            let port = if cmd == crate::local_server::EMBEDDED_STATIC {
+                state.local.start_static(page_id, dir_path, port).await?
+            } else {
+                state.local.start_external(page_id, dir_path, cmd, port)?
+            };
             let url = format!("http://localhost:{port}");
             let g = state.db.lock();
             queries::update_page(&g, page_id, &PagePatch {
@@ -234,7 +238,6 @@ pub async fn start_or_restart_for_page(state: State<'_, AppState>, page_id: i64)
             })?;
         }
     } else {
-        // Disabled — kill the local proc if running.
         state.local.stop(page_id);
     }
 
