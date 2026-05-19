@@ -5,16 +5,6 @@ import { useStore } from '@/lib/store';
 
 const CREATE_URL = 'https://dash.cloudflare.com/profile/api-tokens?token_id=create';
 
-// Known Cloudflare permission group IDs (community-discovered, undocumented).
-// If CF stops honoring these in dashboard URL params, the user still lands on
-// the right page and fills the table manually.
-const PG_ZONE_READ  = 'c8fed203ed3043cba015a93ad1616f1f';
-const PG_DNS_EDIT   = '4755a26eedb94da69e1066d98aa820be';
-const AUTOFILL_URL =
-  `https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=` +
-  encodeURIComponent(`["${PG_ZONE_READ}","${PG_DNS_EDIT}"]`) +
-  `&name=` + encodeURIComponent('Cloudflare Tunnel Manager');
-
 const REQUIRED_PERMS: { resource: string; sub: string; action: string; reason: string }[] = [
   { resource: 'Zone', sub: 'Zone', action: 'Read',  reason: 'list your domains' },
   { resource: 'Zone', sub: 'DNS',  action: 'Edit',  reason: 'create / replace tunnel CNAMEs' },
@@ -106,21 +96,13 @@ export function ApiTokenSection() {
         <div className="space-y-3 bg-bg border border-border-strong rounded-md p-4">
           <div className="text-[11px] font-mono text-fg-dim uppercase tracking-wider">Step-by-step</div>
 
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={() => openExternal(AUTOFILL_URL)}
-              className="bg-gradient-to-b from-fg to-fg-muted text-bg rounded px-3 py-2 text-xs font-semibold w-fit">
-              ⚡ Open Cloudflare with permissions pre-filled
-            </button>
-            <button
-              onClick={() => openExternal(CREATE_URL)}
-              className="text-fg-muted hover:text-fg text-[11px] font-mono underline underline-offset-2 w-fit">
-              … or open the blank form manually
-            </button>
-            <div className="text-[10px] text-fg-dim">
-              The auto-fill link uses an undocumented Cloudflare URL parameter. If the page opens
-              empty, fill the form using the steps below.
-            </div>
+          <button
+            onClick={() => openExternal(CREATE_URL)}
+            className="bg-gradient-to-b from-fg to-fg-muted text-bg rounded px-3 py-2 text-xs font-semibold w-fit">
+            Open Cloudflare → Create Custom Token
+          </button>
+          <div className="text-[10px] text-fg-dim">
+            Cloudflare doesn't support pre-filling the form via URL. Fill it using the steps below.
           </div>
 
           <ol className="space-y-3 text-[11px] text-fg-muted list-decimal pl-5 leading-relaxed mt-3">
