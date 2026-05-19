@@ -1,1 +1,28 @@
-// Placeholder. Filled in Task 14 once DB pool and Supervisor exist.
+use std::path::PathBuf;
+use std::sync::Arc;
+use parking_lot::Mutex;
+use rusqlite::Connection;
+use crate::supervisor::Supervisor;
+use crate::error::AppResult;
+
+pub struct AppState {
+    pub db: Arc<Mutex<Connection>>,
+    pub supervisor: Arc<Supervisor>,
+    pub configs_dir: PathBuf,
+    pub app_data_dir: PathBuf,
+}
+
+impl AppState {
+    pub fn init(app_data_dir: PathBuf, cloudflared_path: PathBuf) -> AppResult<Self> {
+        std::fs::create_dir_all(&app_data_dir)?;
+        let configs_dir = app_data_dir.join("configs");
+        std::fs::create_dir_all(&configs_dir)?;
+        let conn = crate::db::open_and_migrate(&app_data_dir.join("state.db"))?;
+        Ok(Self {
+            db: Arc::new(Mutex::new(conn)),
+            supervisor: Supervisor::new(cloudflared_path),
+            configs_dir,
+            app_data_dir,
+        })
+    }
+}
