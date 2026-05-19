@@ -83,6 +83,19 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
 
   if (!open) return null;
 
+  // Helper: route DNS via the explicit-zone API path when we have a zone selected
+  // (avoids cloudflared's zone-guessing bug). Fall back to the CLI path otherwise.
+  async function doRouteDns(hostname: string, overwrite: boolean) {
+    if (useZoneMode && zoneName) {
+      const zone = zones.find(z => z.name === zoneName);
+      if (zone) {
+        await api.routeDnsViaApi(zone.id, hostname, tunnelUuid, overwrite);
+        return;
+      }
+    }
+    await api.routeDns(tunnelUuid, hostname, overwrite);
+  }
+
   async function submit(overwrite = false) {
     setSubmitting(true); setError(null); setConflictRetry(false);
     try {
@@ -95,14 +108,14 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
         const hostnameChanged = editing.hostname !== finalHostname;
         const tunnelChanged = editing.tunnel_uuid !== tunnelUuid;
         if (hostnameChanged || tunnelChanged) {
-          await api.routeDns(tunnelUuid, finalHostname, overwrite);
+          await doRouteDns(finalHostname, overwrite);
         }
         await api.updatePage(editing.id, {
           hostname: finalHostname, service_url: serviceUrl, tunnel_uuid: tunnelUuid,
         });
         await api.startOrRestartForPage(editing.id);
       } else {
-        await api.routeDns(tunnelUuid, finalHostname, overwrite);
+        await doRouteDns(finalHostname, overwrite);
         await api.createPage({ hostname: finalHostname, service_url: serviceUrl, tunnel_uuid: tunnelUuid });
       }
       await refreshPages();
@@ -110,8 +123,8 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
     } catch (e: any) {
       const msg: string = e?.message ?? String(e);
       setError(msg);
-      // Detect "record already exists" conflict so we can offer overwrite.
-      if (!overwrite && /code:\s*1003|already exists/i.test(msg)) {
+      // Detect record-conflict variants from both CLI (code: 1003) and API (81053 / "already exists").
+      if (!overwrite && /code:\s*1003|81053|81057|already exists|identical record/i.test(msg)) {
         setConflictRetry(true);
       }
     } finally { setSubmitting(false); }

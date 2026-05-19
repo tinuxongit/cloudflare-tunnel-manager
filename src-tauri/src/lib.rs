@@ -42,6 +42,7 @@ pub fn run() {
             commands::create_tunnel,
             commands::delete_tunnel,
             commands::route_dns,
+            commands::route_dns_via_api,
             commands::get_status,
             commands::get_logs,
             commands::stop_tunnel,

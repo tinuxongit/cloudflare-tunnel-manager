@@ -20,6 +20,8 @@ export const api = {
   createTunnel:        (name: string) => call<T.Tunnel>('create_tunnel', { name }),
   deleteTunnel:        (uuid: string) => call<void>('delete_tunnel', { uuid }),
   routeDns:            (uuid: string, hostname: string, overwrite = false) => call<void>('route_dns', { uuid, hostname, overwrite }),
+  routeDnsViaApi:      (zone_id: string, hostname: string, tunnel_uuid: string, overwrite = false) =>
+    call<void>('route_dns_via_api', { zoneId: zone_id, hostname, tunnelUuid: tunnel_uuid, overwrite }),
 
   getStatus:           (tunnel_uuid: string) => call<T.RuntimeStatus>('get_status', { tunnelUuid: tunnel_uuid }),
   getLogs:             (tunnel_uuid: string, last_n = 500) => call<T.LogLine[]>('get_logs', { tunnelUuid: tunnel_uuid, lastN: last_n }),

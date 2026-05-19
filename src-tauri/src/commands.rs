@@ -81,6 +81,23 @@ pub fn route_dns(state: State<AppState>, uuid: String, hostname: String, overwri
     cli.route_dns(&uuid, &hostname, overwrite.unwrap_or(false))
 }
 
+/// Create or replace the tunnel CNAME on a specific zone via the Cloudflare REST API.
+/// Bypasses cloudflared's flaky zone-guessing — the caller picks the exact zone.
+/// Requires the saved API token to have Zone:DNS:Edit permission.
+#[tauri::command]
+pub async fn route_dns_via_api(
+    zone_id: String,
+    hostname: String,
+    tunnel_uuid: String,
+    overwrite: Option<bool>,
+) -> AppResult<()> {
+    let token = crate::secrets::get(crate::secrets::CF_API_TOKEN)
+        .ok_or(crate::error::AppError::Other { message: "no API token set — Settings → Cloudflare access".into() })?;
+    crate::cloudflared::api::upsert_tunnel_cname(
+        &token, &zone_id, &hostname, &tunnel_uuid, overwrite.unwrap_or(false),
+    ).await
+}
+
 use crate::metrics::{self, RuntimeStatus};
 use crate::supervisor::log_buffer::LogLine;
 use crate::health::{check::check as service_check, ServiceHealth};
