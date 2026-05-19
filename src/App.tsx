@@ -5,6 +5,7 @@ import { PagesView } from '@/pages/PagesView';
 import { TunnelsView } from '@/pages/TunnelsView';
 import { LogsView } from '@/pages/LogsView';
 import { HealthView } from '@/pages/HealthView';
+import { SettingsView } from '@/pages/SettingsView';
 
 export default function App() {
   const { view, refreshSystem, refreshPages, refreshTunnels, refreshSettings } = useStore();
@@ -24,9 +25,7 @@ export default function App() {
         {view === 'tunnels' && <TunnelsView />}
         {view === 'logs' && <LogsView />}
         {view === 'health' && <HealthView />}
-        {view !== 'pages' && view !== 'tunnels' && view !== 'logs' && view !== 'health' && (
-          <div className="p-8 text-fg-dim">View "{view}" coming soon.</div>
-        )}
+        {view === 'settings' && <SettingsView />}
       </main>
     </div>
   );
