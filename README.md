@@ -49,3 +49,7 @@ If you build release binaries you intend to share, remap your home directory out
 ```
 RUSTFLAGS="--remap-path-prefix=$HOME=/build" cargo build --release
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE).
