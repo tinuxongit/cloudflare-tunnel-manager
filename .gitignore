@@ -1,6 +1,3 @@
-# Local workspace
-
-
 # Rust
 target/
 **/*.rs.bk
@@ -37,5 +34,4 @@ Thumbs.db
 .env.*.local
 
 # Local build/run artifacts (not for distribution)
-.local-run/
 Cloudflare Studio EXE/

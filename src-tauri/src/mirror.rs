@@ -2,9 +2,8 @@
 //!
 //! ## Layout
 //! Each mirror lives at `<appdata>/mirrors/<id>/`:
-//!   * `working/` — the live editable folder. The user (or a developer via
-//!     its file tools) edits here. Opened in Explorer via the "Open in
-//!     Explorer" button on the Files view.
+//!   * `working/` — the live editable folder. The user edits here.
+//!     Opened in Explorer via the "Open in Explorer" button on the Files view.
 //!   * `.snapshot/` — read-only copy of the remote state at last sync. Used
 //!     to compute diffs and to revert on "Cancel".
 //!
