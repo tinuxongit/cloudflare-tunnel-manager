@@ -12,7 +12,7 @@ export default {
         fg:        { DEFAULT: '#fafafa', muted: '#a1a1aa', dim: '#71717a', faint: '#52525b' },
       },
       fontFamily: {
-        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: ['Manrope', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },
     },

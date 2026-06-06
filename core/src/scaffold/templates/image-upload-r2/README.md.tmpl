@@ -1,0 +1,37 @@
+# {{project_name}}
+
+Upload images to R2 (Cloudflare's object storage). PNG, JPEG, WebP, GIF, SVG. 10MB cap.
+
+## One-time R2 bucket setup
+
+The wizard scaffolds the wrangler binding, but R2 buckets must exist before the Worker can write to them. Either:
+
+- Cloudflare Studio → R2 → **+ New bucket** → name it `{{project_name}}-uploads`
+- Or: `pnpm exec wrangler r2 bucket create {{project_name}}-uploads`
+
+Then redeploy this project.
+
+## Endpoints
+
+```
+POST /upload        — multipart/form-data with "file"   → { key, url }
+GET  /:key          — fetch by key (with cache headers)
+GET  /list          — list uploaded objects
+DELETE /:key        — delete
+```
+
+## Upload from an HTML form
+
+```html
+<form action="https://YOUR-WORKER-URL/upload" method="POST" enctype="multipart/form-data">
+  <input type="file" name="file" accept="image/*" required />
+  <button>Upload</button>
+</form>
+```
+
+Or from JS:
+```js
+const fd = new FormData();
+fd.append("file", fileFromInput);
+const { url } = await fetch("https://YOUR-WORKER-URL/upload", { method: "POST", body: fd }).then(r => r.json());
+```

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { api } from '@/lib/ipc';
 import { useStore } from '@/lib/store';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 const KEY_URL = 'https://dash.cloudflare.com/profile/api-tokens';
 
@@ -12,6 +13,7 @@ function maskKey(raw: string): string {
 
 export function GlobalKeySection() {
   const { refreshZones, refreshTokenState } = useStore();
+  const confirm = useConfirm();
   const [hasKey, setHasKey] = useState(false);
   const [savedEmail, setSavedEmail] = useState('');
   const [savedKey, setSavedKey] = useState('');
@@ -53,7 +55,12 @@ export function GlobalKeySection() {
   }
 
   async function clear() {
-    if (!confirm('Remove the saved Global API Key?')) return;
+    const ok = await confirm({
+      title: 'Remove the saved Global API Key?',
+      variant: 'danger',
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
     await api.clearGlobalKey();
     await refresh();
     await refreshTokenState();

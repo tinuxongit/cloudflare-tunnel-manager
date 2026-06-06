@@ -1,0 +1,41 @@
+/**
+ * {{project_name}} — Worker + D1 database.
+ *
+ * Endpoints:
+ *   GET  /              → { ok: true }
+ *   GET  /items         → all items, newest first
+ *   POST /items         → { text } → { id, text, created_at }
+ *
+ * Schema lives in schema.sql. Run `pnpm run db:migrate` after editing it.
+ */
+
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+
+const app = new Hono();
+app.use("*", cors({ origin: "*" }));
+
+app.get("/", (c) => c.json({ ok: true, name: "{{project_name}}" }));
+
+app.get("/items", async (c) => {
+  const { results } = await c.env.{{d1_binding}}
+    .prepare("SELECT id, text, created_at FROM items ORDER BY created_at DESC LIMIT 100")
+    .all();
+  return c.json({ items: results ?? [] });
+});
+
+app.post("/items", async (c) => {
+  let body;
+  try { body = await c.req.json(); } catch { return c.json({ error: "bad json" }, 400); }
+  const text = String(body.text || "").trim();
+  if (!text) return c.json({ error: "text required" }, 400);
+
+  const now = Date.now();
+  const res = await c.env.{{d1_binding}}
+    .prepare("INSERT INTO items (text, created_at) VALUES (?, ?)")
+    .bind(text, now)
+    .run();
+  return c.json({ id: res.meta.last_row_id, text, created_at: now });
+});
+
+export default app;

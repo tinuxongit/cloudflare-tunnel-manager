@@ -1,0 +1,25 @@
+# {{project_name}}
+
+Stripe webhook receiver. Verifies signatures, dispatches per-event handlers.
+
+## Setup
+
+1. Deploy: `pnpm run deploy` (or click Redeploy in Cloudflare Studio).
+2. Stripe → Developers → Webhooks → **Add endpoint**:
+   - URL: your Worker's URL
+   - Events: pick what you need (`checkout.session.completed`, `customer.subscription.*`, etc.)
+3. Stripe shows a **Signing secret** (`whsec_...`) → copy it.
+4. Cloudflare Studio → Workers → this Worker → **Secrets** → Add `STRIPE_WEBHOOK_SECRET` → paste.
+
+## Add handlers
+
+Edit `src/index.js` — there's a `switch` dispatching on `event.type`. Add cases for the events you handle.
+
+## Test locally
+
+Use the Stripe CLI to forward events to your local dev:
+```sh
+pnpm run dev          # in one terminal
+stripe listen --forward-to localhost:8787   # in another
+stripe trigger checkout.session.completed
+```

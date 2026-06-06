@@ -1,0 +1,30 @@
+# {{project_name}}
+
+Accept form submissions, store in D1. Point an HTML form's `action` at `/submit`.
+
+## HTML example
+
+```html
+<form action="https://YOUR-WORKER-URL/submit" method="POST">
+  <input name="email" type="email" required />
+  <input name="name" />
+  <textarea name="message"></textarea>
+  <button>Submit</button>
+</form>
+```
+
+Or JSON:
+```js
+await fetch("https://YOUR-WORKER-URL/submit", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ email: "you@example.com", name: "Ada", message: "hi" }),
+});
+```
+
+Extra fields (anything beyond email / name / message) land in the `meta` JSON column.
+
+## See submissions
+
+- Quick: open `/submissions` in your browser (delete this endpoint or add auth before going public).
+- Proper: open the DB in Cloudflare Studio → D1 → this DB → run `SELECT * FROM submissions ORDER BY created_at DESC;`

@@ -1,0 +1,17 @@
+/**
+ * {{project_name}} — empty Worker.
+ *
+ * Edit `fetch` to do something useful. Common patterns:
+ *   - Inspect `request.url` / `request.method` and branch
+ *   - Forward to another API (proxy / webhook)
+ *   - Return a redirect: `return Response.redirect("https://...", 302)`
+ */
+
+export default {
+  async fetch(request, env, ctx) {
+    return new Response(
+      JSON.stringify({ ok: true, name: "{{project_name}}", method: request.method }),
+      { headers: { "content-type": "application/json" } }
+    );
+  },
+};

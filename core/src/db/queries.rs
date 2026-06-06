@@ -51,12 +51,11 @@ pub fn update_page(conn: &Connection, id: i64, patch: &PagePatch) -> AppResult<P
     let service_url  = patch.service_url.clone().unwrap_or(cur.service_url);
     let tunnel_uuid  = patch.tunnel_uuid.clone().unwrap_or(cur.tunnel_uuid);
     let enabled      = patch.enabled.unwrap_or(cur.enabled);
-    let source_dir   = match &patch.source_dir   { Some(_) => patch.source_dir.clone(),   None => cur.source_dir };
-    let run_command  = match &patch.run_command  { Some(_) => patch.run_command.clone(),  None => cur.run_command };
-    let assigned_port: Option<u16> = match patch.assigned_port {
-        Some(p) => Some(p),
-        None    => cur.assigned_port,
-    };
+    // Double-Option: None = field absent (keep current), Some(None) = clear,
+    // Some(Some(x)) = set to x. Lets the UI send JSON null to wipe a field.
+    let source_dir    = patch.source_dir.clone().unwrap_or(cur.source_dir);
+    let run_command   = patch.run_command.clone().unwrap_or(cur.run_command);
+    let assigned_port = patch.assigned_port.unwrap_or(cur.assigned_port);
     conn.execute(
         "UPDATE pages SET hostname=?1, service_url=?2, tunnel_uuid=?3, enabled=?4,
                           source_dir=?5, run_command=?6, assigned_port=?7
@@ -122,18 +121,35 @@ pub fn get_settings(conn: &Connection) -> AppResult<Settings> {
 }
 
 pub fn set_settings(conn: &Connection, patch: &SettingsPatch) -> AppResult<Settings> {
+    // Plain Option<String/bool> fields: only present writes; absence leaves
+    // the row alone. Double-Option fields (shared_tunnel_uuid, cloudflared_path)
+    // distinguish absent (keep), null/empty (delete row), and set.
     let mut updates: Vec<(&str, String)> = vec![];
-    if let Some(v) = &patch.grouping_mode      { updates.push(("grouping_mode", v.clone())); }
-    if let Some(v) = &patch.shared_tunnel_uuid { updates.push(("shared_tunnel_uuid", v.clone())); }
-    if let Some(v) = &patch.cloudflared_path   { updates.push(("cloudflared_path", v.clone())); }
-    if let Some(v) = &patch.theme              { updates.push(("theme", v.clone())); }
-    if let Some(v) = patch.start_on_boot       { updates.push(("start_on_boot", if v {"1"} else {"0"}.into())); }
+    let mut deletes: Vec<&str> = vec![];
+    if let Some(v) = &patch.grouping_mode { updates.push(("grouping_mode", v.clone())); }
+    if let Some(v) = &patch.theme         { updates.push(("theme", v.clone())); }
+    if let Some(v) = patch.start_on_boot  { updates.push(("start_on_boot", if v {"1"} else {"0"}.into())); }
+    if let Some(outer) = &patch.shared_tunnel_uuid {
+        match outer.as_deref() {
+            Some(s) if !s.is_empty() => updates.push(("shared_tunnel_uuid", s.to_string())),
+            _                        => deletes.push("shared_tunnel_uuid"),
+        }
+    }
+    if let Some(outer) = &patch.cloudflared_path {
+        match outer.as_deref() {
+            Some(s) if !s.is_empty() => updates.push(("cloudflared_path", s.to_string())),
+            _                        => deletes.push("cloudflared_path"),
+        }
+    }
     for (k, v) in updates {
         conn.execute(
             "INSERT INTO settings (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value=?2",
             params![k, v],
         )?;
+    }
+    for k in deletes {
+        conn.execute("DELETE FROM settings WHERE key=?1", params![k])?;
     }
     get_settings(conn)
 }

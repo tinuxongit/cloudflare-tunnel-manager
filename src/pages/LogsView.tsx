@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import { api } from '@/lib/ipc';
 import type { LogLine } from '@/lib/types';
+import { PageShell, PageHeader } from '@/components/PageShell';
 
 export function LogsView() {
   const { tunnels } = useStore();
@@ -25,15 +26,18 @@ export function LogsView() {
   }, [selected]);
 
   return (
-    <div className="flex flex-col h-screen">
-      <div className="px-7 py-5 border-b border-border-subtle flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Logs</h2>
-        <select value={selected} onChange={e => setSelected(e.target.value)}
-          className="bg-bg border border-border rounded-md px-3 py-1.5 text-sm font-mono">
-          {tunnels.map(t => <option key={t.uuid} value={t.uuid}>{t.name}</option>)}
-        </select>
-      </div>
-      <div className="flex-1 overflow-auto bg-bg-sunk font-mono text-[11px] p-3">
+    <PageShell>
+      <PageHeader title="Logs"
+        subtitle="cloudflared output for the selected tunnel."
+        actions={
+          <select value={selected} onChange={e => setSelected(e.target.value)}
+            className="h-9 bg-bg border border-border-strong rounded-md px-3 text-sm font-mono">
+            {tunnels.length === 0 && <option value="">(no tunnels)</option>}
+            {tunnels.map(t => <option key={t.uuid} value={t.uuid}>{t.name}</option>)}
+          </select>
+        } />
+
+      <div className="bg-bg-sunk border border-border-strong rounded-md font-mono text-[11px] p-3 h-[calc(100vh-240px)] overflow-auto">
         {lines.length === 0
           ? <div className="text-fg-dim">No logs yet (tunnel not running?).</div>
           : lines.map((l, i) => (
@@ -42,6 +46,6 @@ export function LogsView() {
               </div>
             ))}
       </div>
-    </div>
+    </PageShell>
   );
 }

@@ -1,0 +1,59 @@
+/**
+ * {{project_name}} — auto-update server for desktop apps (Tauri / Electron / etc.)
+ *
+ * Endpoint:
+ *   GET /:platform/:current_version
+ *     → { version, url, notes }   (when there's a newer release)
+ *     → 204 No Content              (when client is up to date)
+ *
+ * Example:  GET /windows-x86_64/0.1.0
+ *
+ * Wire your app's updater to call this. For Tauri, set the updater endpoint
+ * in tauri.conf.json:
+ *   "endpoints": ["https://YOUR-WORKER-URL/{{target}}/{{current_version}}"]
+ *
+ * To bump the version: edit wrangler.toml's [vars] block and redeploy.
+ * No DB needed — config is in env.
+ */
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    const [, platform, currentVersion] = url.pathname.split("/");
+    if (!platform || !currentVersion) {
+      return Response.json({ error: "use GET /:platform/:current_version" }, { status: 400 });
+    }
+
+    const latest = env.CURRENT_VERSION;
+    if (!semverNewer(latest, currentVersion)) {
+      return new Response(null, { status: 204 });
+    }
+
+    const downloadKey = ({
+      "windows-x86_64": "DOWNLOAD_URL_WIN",
+      "darwin-x86_64":  "DOWNLOAD_URL_MAC",
+      "darwin-aarch64": "DOWNLOAD_URL_MAC",
+      "linux-x86_64":   "DOWNLOAD_URL_LINUX",
+    })[platform];
+    if (!downloadKey) return Response.json({ error: `unknown platform: ${platform}` }, { status: 400 });
+
+    return Response.json({
+      version: latest,
+      pub_date: new Date().toISOString(),
+      url: env[downloadKey],
+      notes: env.RELEASE_NOTES_URL || "",
+    });
+  },
+};
+
+/** Returns true if `a` is strictly newer than `b` (simple semver compare). */
+function semverNewer(a, b) {
+  const pa = String(a).split(".").map(Number);
+  const pb = String(b).split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    const x = pa[i] ?? 0, y = pb[i] ?? 0;
+    if (x > y) return true;
+    if (x < y) return false;
+  }
+  return false;
+}

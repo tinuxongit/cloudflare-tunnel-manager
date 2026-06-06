@@ -1,6 +1,15 @@
+pub mod cloudflare;
+pub mod events;
+pub mod files;
 pub mod folder;
+pub mod fs;
+pub mod http;
 pub mod pages;
+pub mod projects;
 pub mod settings;
+pub mod setup;
+pub mod shell;
 pub mod status;
 pub mod system;
+pub mod tail;
 pub mod tunnels;

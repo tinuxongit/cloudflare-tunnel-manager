@@ -1,0 +1,145 @@
+/**
+ * {{project_name}} — login server (email + password + machine-bound tokens).
+ *
+ * Endpoints:
+ *   POST /signup    { email, password }
+ *   POST /login     { email, password, machine_id }   → { token, expires_at, user }
+ *   POST /verify    { token, machine_id }             → { valid, user? }
+ *   POST /refresh   { token }                         → { token, expires_at }
+ *   POST /logout    { token }
+ *   GET  /health
+ *
+ * Passwords: PBKDF2-SHA256, 100k iterations (Worker CPU budget).
+ * Tokens: 256-bit random hex, stored as SHA-256 hash, bound to machine_id.
+ */
+
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+
+const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const LOGIN_WINDOW_MS = 60_000;
+const LOGIN_ATTEMPTS_PER_WINDOW = 8;
+const MIN_PASSWORD_LENGTH = 8;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PBKDF2_ITERATIONS = 100_000;
+const SALT_BYTES = 16;
+const KEY_BYTES = 32;
+const DUMMY_HASH = `pbkdf2$${PBKDF2_ITERATIONS}$${"00".repeat(SALT_BYTES)}$${"00".repeat(KEY_BYTES)}`;
+
+const app = new Hono();
+app.use("*", cors({ origin: "*", allowMethods: ["GET", "POST", "OPTIONS"], allowHeaders: ["Content-Type"] }));
+
+app.get("/health", (c) => c.json({ ok: true }));
+
+app.post("/signup", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body) return c.json({ error: "bad json" }, 400);
+  const email = String(body.email || "").trim().toLowerCase();
+  const password = String(body.password || "");
+  if (!EMAIL_RE.test(email)) return c.json({ error: "invalid email" }, 400);
+  if (password.length < MIN_PASSWORD_LENGTH) return c.json({ error: `password must be at least ${MIN_PASSWORD_LENGTH} characters` }, 400);
+  const existing = await c.env.{{d1_binding}}.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
+  if (existing) return c.json({ error: "an account with this email already exists" }, 409);
+  const password_hash = await hashPassword(password);
+  await c.env.{{d1_binding}}.prepare("INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)").bind(email, password_hash, Date.now()).run();
+  return c.json({ ok: true });
+});
+
+app.post("/login", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body) return c.json({ error: "bad json" }, 400);
+  const email = String(body.email || "").trim().toLowerCase();
+  const password = String(body.password || "");
+  const machine_id = String(body.machine_id || "").trim();
+  if (!email || !password || !machine_id) return c.json({ error: "missing email, password, or machine_id" }, 400);
+  const ip = c.req.header("cf-connecting-ip") || "unknown";
+  const allowed = await rateLimit(c.env.{{d1_binding}}, `${ip}:${email}`);
+  if (!allowed) return c.json({ error: "too many attempts" }, 429);
+  const user = await c.env.{{d1_binding}}.prepare("SELECT id, email, password_hash, plan FROM users WHERE email = ?").bind(email).first();
+  const ok = await verifyPassword(password, user?.password_hash || DUMMY_HASH).catch(() => false);
+  if (!user || !ok) return c.json({ error: "invalid email or password" }, 401);
+  const token = newToken();
+  const now = Date.now();
+  const expires_at = now + TOKEN_TTL_MS;
+  await c.env.{{d1_binding}}.prepare("INSERT INTO tokens (token_hash, user_id, machine_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)").bind(await sha256Hex(token), user.id, machine_id, now, expires_at).run();
+  return c.json({ token, expires_at, user: { email: user.email, plan: user.plan } });
+});
+
+app.post("/verify", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body) return c.json({ valid: false, reason: "bad json" }, 400);
+  const token = String(body.token || "");
+  const machine_id = String(body.machine_id || "").trim();
+  if (!token || !machine_id) return c.json({ valid: false, reason: "missing fields" }, 400);
+  const token_hash = await sha256Hex(token);
+  const row = await c.env.{{d1_binding}}.prepare("SELECT user_id, machine_id, expires_at, revoked FROM tokens WHERE token_hash = ?").bind(token_hash).first();
+  if (!row) return c.json({ valid: false, reason: "unknown token" }, 401);
+  if (row.revoked) return c.json({ valid: false, reason: "revoked" }, 401);
+  if (row.expires_at < Date.now()) return c.json({ valid: false, reason: "expired" }, 401);
+  if (!ctEq(row.machine_id, machine_id)) return c.json({ valid: false, reason: "machine mismatch" }, 401);
+  await c.env.{{d1_binding}}.prepare("UPDATE tokens SET last_seen_at = ? WHERE token_hash = ?").bind(Date.now(), token_hash).run();
+  const u = await c.env.{{d1_binding}}.prepare("SELECT email, plan FROM users WHERE id = ?").bind(row.user_id).first();
+  return c.json({ valid: true, user: { email: u?.email, plan: u?.plan } });
+});
+
+app.post("/refresh", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const oldToken = String(body?.token || "");
+  if (!oldToken) return c.json({ error: "missing token" }, 400);
+  const oldHash = await sha256Hex(oldToken);
+  const row = await c.env.{{d1_binding}}.prepare("SELECT user_id, machine_id, expires_at, revoked FROM tokens WHERE token_hash = ?").bind(oldHash).first();
+  if (!row || row.revoked || row.expires_at < Date.now()) return c.json({ error: "token not refreshable" }, 401);
+  await c.env.{{d1_binding}}.prepare("UPDATE tokens SET revoked = 1 WHERE token_hash = ?").bind(oldHash).run();
+  const token = newToken();
+  const now = Date.now();
+  const expires_at = now + TOKEN_TTL_MS;
+  await c.env.{{d1_binding}}.prepare("INSERT INTO tokens (token_hash, user_id, machine_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)").bind(await sha256Hex(token), row.user_id, row.machine_id, now, expires_at).run();
+  return c.json({ token, expires_at });
+});
+
+app.post("/logout", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const token = String(body?.token || "");
+  if (token) await c.env.{{d1_binding}}.prepare("UPDATE tokens SET revoked = 1 WHERE token_hash = ?").bind(await sha256Hex(token)).run();
+  return c.json({ ok: true });
+});
+
+export default app;
+
+// ── crypto helpers ─────────────────────────────────────────────────────
+async function hashPassword(p) {
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
+  const hash = await pbkdf2(p, salt, PBKDF2_ITERATIONS);
+  return `pbkdf2$${PBKDF2_ITERATIONS}$${hex(salt)}$${hex(hash)}`;
+}
+async function verifyPassword(p, stored) {
+  if (!stored?.startsWith("pbkdf2$")) return false;
+  const [, it, salt, exp] = stored.split("$");
+  const actual = await pbkdf2(p, unhex(salt), Number(it));
+  return ctBytes(actual, unhex(exp));
+}
+async function pbkdf2(p, salt, iter) {
+  const km = await crypto.subtle.importKey("raw", new TextEncoder().encode(p), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: iter, hash: "SHA-256" }, km, KEY_BYTES * 8);
+  return new Uint8Array(bits);
+}
+async function sha256Hex(s) {
+  return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(s)))));
+}
+function newToken() { return hex(crypto.getRandomValues(new Uint8Array(32))); }
+function ctBytes(a, b) { if (a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a[i] ^ b[i]; return d === 0; }
+function ctEq(a, b) { if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; }
+function hex(b) { let o = ""; for (let i = 0; i < b.length; i++) o += b[i].toString(16).padStart(2, "0"); return o; }
+function unhex(h) { const o = new Uint8Array(h.length / 2); for (let i = 0; i < o.length; i++) o[i] = parseInt(h.substr(i * 2, 2), 16); return o; }
+
+async function rateLimit(db, key) {
+  const now = Date.now();
+  const row = await db.prepare("SELECT count, window_start FROM login_attempts WHERE key = ?").bind(key).first();
+  if (!row || now - row.window_start > LOGIN_WINDOW_MS) {
+    await db.prepare("INSERT INTO login_attempts (key, count, window_start) VALUES (?, 1, ?) ON CONFLICT(key) DO UPDATE SET count = 1, window_start = excluded.window_start").bind(key, now).run();
+    return true;
+  }
+  if (row.count >= LOGIN_ATTEMPTS_PER_WINDOW) return false;
+  await db.prepare("UPDATE login_attempts SET count = count + 1 WHERE key = ?").bind(key).run();
+  return true;
+}

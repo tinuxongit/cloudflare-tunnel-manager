@@ -1,0 +1,12 @@
+-- Submissions table. Adapt fields to match your form.
+CREATE TABLE IF NOT EXISTS submissions (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  email      TEXT,
+  name       TEXT,
+  message    TEXT,
+  meta       TEXT,                    -- JSON blob for arbitrary extra fields
+  ip         TEXT,
+  user_agent TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_submissions_created_at ON submissions(created_at);

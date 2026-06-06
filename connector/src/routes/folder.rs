@@ -23,16 +23,9 @@ pub struct SetupGuideBody {
     pub path: String,
 }
 
-#[derive(serde::Serialize)]
-pub struct SetupGuideResponse {
-    pub path: String,
-}
-
 pub async fn write_setup_guide(
     Json(body): Json<SetupGuideBody>,
-) -> Result<Json<SetupGuideResponse>, ApiError> {
+) -> Result<Json<String>, ApiError> {
     let p = setup_guide::write_setup_guide(std::path::Path::new(&body.path))?;
-    Ok(Json(SetupGuideResponse {
-        path: p.display().to_string(),
-    }))
+    Ok(Json(p.display().to_string()))
 }

@@ -36,6 +36,53 @@ pub fn spawn(cloudflared: &std::path::Path, config_path: &std::path::Path, tunne
         .spawn()
         .map_err(|e| AppError::ProcSpawnFailed { reason: e.to_string() })?;
 
+    attach_log_pumps(&mut child, &logs);
+
+    Ok(ManagedProc {
+        tunnel_uuid: tunnel_uuid.to_string(),
+        metrics_port,
+        child,
+        logs,
+    })
+}
+
+/// Spawn cloudflared in token mode — no cert.pem, no credentials.json, no
+/// local YAML. Ingress is fetched from CF on connect (the tunnel was
+/// created with `config_src: "cloudflare"`). This is what the connector
+/// uses in remote mode and what local mode should use for new tunnels.
+pub fn spawn_with_token(
+    cloudflared: &std::path::Path,
+    token: &str,
+    tunnel_uuid: &str,
+) -> AppResult<ManagedProc> {
+    let metrics_port = alloc_port()?;
+    let logs = Arc::new(LogBuffer::new(2000));
+
+    let mut child = Command::new(cloudflared)
+        .args([
+            "tunnel",
+            "--no-autoupdate",
+            "--metrics", &format!("127.0.0.1:{metrics_port}"),
+            "run",
+            "--token", token,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| AppError::ProcSpawnFailed { reason: e.to_string() })?;
+
+    attach_log_pumps(&mut child, &logs);
+
+    Ok(ManagedProc {
+        tunnel_uuid: tunnel_uuid.to_string(),
+        metrics_port,
+        child,
+        logs,
+    })
+}
+
+fn attach_log_pumps(child: &mut Child, logs: &Arc<LogBuffer>) {
+
     if let Some(out) = child.stdout.take() {
         let logs = logs.clone();
         thread::spawn(move || {
@@ -52,13 +99,6 @@ pub fn spawn(cloudflared: &std::path::Path, config_path: &std::path::Path, tunne
             }
         });
     }
-
-    Ok(ManagedProc {
-        tunnel_uuid: tunnel_uuid.to_string(),
-        metrics_port,
-        child,
-        logs,
-    })
 }
 
 impl ManagedProc {

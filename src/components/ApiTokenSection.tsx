@@ -2,12 +2,20 @@ import { useEffect, useState } from 'react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { api } from '@/lib/ipc';
 import { useStore } from '@/lib/store';
+import { useConfirm } from '@/components/ConfirmDialog';
 
 const CREATE_URL = 'https://dash.cloudflare.com/profile/api-tokens?token_id=create';
 
 const REQUIRED_PERMS: { resource: string; sub: string; action: string; reason: string }[] = [
-  { resource: 'Zone', sub: 'Zone', action: 'Read',  reason: 'list your domains' },
-  { resource: 'Zone', sub: 'DNS',  action: 'Edit',  reason: 'create / replace tunnel CNAMEs' },
+  { resource: 'Zone',    sub: 'Zone',                 action: 'Read',  reason: 'list your domains' },
+  { resource: 'Zone',    sub: 'DNS',                  action: 'Edit',  reason: 'DNS records + tunnel CNAMEs' },
+  { resource: 'Zone',    sub: 'Cache Purge',          action: 'Purge', reason: 'Purge edge cache after pushing website changes' },
+  { resource: 'Zone',    sub: 'Zone Settings',        action: 'Edit',  reason: 'Toggle Development Mode (bypass edge cache for 3h)' },
+  { resource: 'Account', sub: 'Workers Scripts',      action: 'Edit',  reason: 'Workers section' },
+  { resource: 'Account', sub: 'Cloudflare Tunnel',    action: 'Edit',  reason: 'Tunnel CRUD + ingress config (API-only flow)' },
+  { resource: 'Account', sub: 'D1',                   action: 'Edit',  reason: 'D1 section + SQL console' },
+  { resource: 'Account', sub: 'Workers R2 Storage',   action: 'Edit',  reason: 'R2 section' },
+  { resource: 'Account', sub: 'Cloudflare Pages',     action: 'Edit',  reason: 'Pages section' },
 ];
 
 function maskToken(raw: string): string {
@@ -16,7 +24,8 @@ function maskToken(raw: string): string {
 }
 
 export function ApiTokenSection() {
-  const { hasToken, zones, refreshTokenState, refreshZones } = useStore();
+  const { hasApiToken, hasToken, zones, refreshTokenState, refreshZones } = useStore();
+  const confirm = useConfirm();
   const [editing, setEditing] = useState(false);
   const [token, setToken] = useState('');         // edit-mode buffer
   const [savedToken, setSavedToken] = useState(''); // populated when hasToken
@@ -28,11 +37,11 @@ export function ApiTokenSection() {
 
   useEffect(() => { refreshTokenState(); }, []);
 
-  // Load the saved token value (for the display field) when hasToken flips true.
+  // Load the saved token value (for the display field) when an API token exists.
   useEffect(() => {
-    if (!hasToken) { setSavedToken(''); return; }
+    if (!hasApiToken) { setSavedToken(''); return; }
     api.getApiToken().then(t => setSavedToken(t ?? ''));
-  }, [hasToken]);
+  }, [hasApiToken]);
 
   useEffect(() => {
     if (!hasToken) return;
@@ -61,7 +70,13 @@ export function ApiTokenSection() {
   }
 
   async function clear() {
-    if (!confirm('Remove the saved API token? Domain dropdown will go back to free-text hostname entry.')) return;
+    const ok = await confirm({
+      title: 'Remove the saved API token?',
+      message: 'Domain dropdown will go back to free-text hostname entry.',
+      variant: 'danger',
+      confirmLabel: 'Remove token',
+    });
+    if (!ok) return;
     await api.clearApiToken();
     await refreshTokenState();
     setRevealed(false);
@@ -81,9 +96,9 @@ export function ApiTokenSection() {
     <div className="space-y-3">
       <div className="text-sm font-medium">Cloudflare API token</div>
       <div className="text-[11px] text-fg-dim leading-relaxed">
-        Scoped API token. Lets the app list your domains and create/replace CNAME records on the
-        zone you pick — no cert.pem zone-guessing. Stored in the OS keyring, not in the SQLite DB.
-        Click <span className="text-fg-muted">Add token</span> below for a step-by-step walkthrough.
+        Scoped API token. Unlocks every Cloudflare section in the app: DNS records, Workers, D1, Pages,
+        tunnel CNAMEs, plus remote-pairing (auto-deploys a tiny rendezvous Worker). Stored in the OS keyring,
+        not in the SQLite DB. Click <span className="text-fg-muted">Add token</span> below for a step-by-step walkthrough.
       </div>
 
       {justSaved && (
@@ -92,9 +107,9 @@ export function ApiTokenSection() {
         </div>
       )}
 
-      {editing && !hasToken && (
+      {editing && !hasApiToken && (
         <div className="space-y-3 bg-bg border border-border-strong rounded-md p-4">
-          <div className="text-[11px] font-mono text-fg-dim uppercase tracking-wider">Step-by-step</div>
+          <div className="text-[11px] uppercase tracking-wider text-fg-muted font-semibold">Step-by-step</div>
 
           <button
             onClick={() => openExternal(CREATE_URL)}
@@ -105,11 +120,17 @@ export function ApiTokenSection() {
             Cloudflare doesn't support pre-filling the form via URL. Fill it using the steps below.
           </div>
 
+          <div className="text-[11px] text-amber-200/90 bg-amber-950/20 border border-amber-900/40 rounded p-2 mt-1">
+            <strong className="text-amber-200">Shortcut:</strong> Cloudflare's <strong>"Edit Cloudflare Workers"</strong> template
+            bundles the Workers Scripts + KV + R2 + a few other Account-level scopes in one click. You still
+            need to add Zone:Zone:Read and Zone:DNS:Edit manually for the Tunnels section.
+          </div>
+
           <ol className="space-y-3 text-[11px] text-fg-muted list-decimal pl-5 leading-relaxed mt-3">
             <li><strong className="text-fg">Token name:</strong> anything, e.g. <span className="font-mono">Tunnel Manager</span>.</li>
             <li>
-              <strong className="text-fg">Permissions</strong> — add these two rows. Each row has THREE
-              dropdowns: resource type → sub-resource → action. Click <span className="font-mono">+ Add more</span> for the second row.
+              <strong className="text-fg">Permissions</strong> — add the rows below. Each row has THREE
+              dropdowns: resource type → sub-resource → action. Click <span className="font-mono">+ Add more</span> for each new row.
               <table className="mt-2 w-full text-[11px] font-mono border-collapse">
                 <thead>
                   <tr className="text-fg-dim border-b border-border">
@@ -132,6 +153,10 @@ export function ApiTokenSection() {
               </table>
             </li>
             <li>
+              <strong className="text-fg">Account Resources:</strong> <span className="font-mono">Include</span> → <span className="font-mono">All accounts</span>.
+              <span className="text-fg-dim"> Required for Workers, D1, and Pages — they live at the account level.</span>
+            </li>
+            <li>
               <strong className="text-fg">Zone Resources:</strong> <span className="font-mono">Include</span> → <span className="font-mono">All zones</span> (default).
             </li>
             <li>
@@ -147,7 +172,7 @@ export function ApiTokenSection() {
 
       {/* Show input only when a token exists (display + reveal) or while editing.
           When neither, the "Add token" button below opens the editor. */}
-      {(hasToken || editing) && (
+      {(hasApiToken || editing) && (
         <div className="flex gap-2 items-center">
           <input
             type={revealed || editing ? 'text' : 'password'}
@@ -160,7 +185,7 @@ export function ApiTokenSection() {
             className={`flex-1 bg-bg border border-border rounded-md px-3 py-2 text-sm font-mono
               ${!editing ? 'text-fg-muted cursor-default' : ''}`}
           />
-          {hasToken && !editing && (
+          {hasApiToken && !editing && (
             <button
               type="button"
               title={revealed ? 'Hide' : 'Reveal'}
@@ -180,14 +205,14 @@ export function ApiTokenSection() {
       )}
 
       <div className="flex gap-2 items-center flex-wrap">
-        {!editing && !hasToken && (
+        {!editing && !hasApiToken && (
           <button onClick={() => { setEditing(true); setToken(''); }}
             className="bg-gradient-to-b from-fg to-fg-muted text-bg rounded-md px-3 py-1.5 text-xs font-semibold">
             Add token
           </button>
         )}
 
-        {!editing && hasToken && (
+        {!editing && hasApiToken && (
           <>
             <button onClick={() => { setEditing(true); setToken(''); setRevealed(false); }}
               className="bg-gradient-to-b from-fg to-fg-muted text-bg rounded-md px-3 py-1.5 text-xs font-semibold">
@@ -217,7 +242,7 @@ export function ApiTokenSection() {
         )}
       </div>
 
-      {hasToken && (
+      {hasApiToken && (
         <div className="flex items-center gap-3 text-xs font-mono flex-wrap">
           <span className="px-2 py-1 bg-green-950/40 border border-green-700/40 text-green-300 rounded">
             ✓ saved

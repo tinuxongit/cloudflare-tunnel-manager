@@ -1,0 +1,29 @@
+# {{project_name}}
+
+Worker + D1, deployed via Cloudflare Studio.
+
+## Live URL
+
+After deploy: `https://{{project_name}}.<your-cf-subdomain>.workers.dev`
+
+## Local dev
+
+```sh
+pnpm install
+pnpm run db:migrate:local   # creates local D1 with schema
+pnpm run dev                # http://localhost:8787
+```
+
+## Push changes
+
+```sh
+pnpm run deploy             # pushes src/ to production
+pnpm run db:migrate         # re-runs schema.sql on the remote DB (safe — IF NOT EXISTS)
+```
+
+## What's wired
+
+- `src/index.js` — Hono routes
+- `schema.sql` — database schema
+- `wrangler.toml` — config (don't edit `database_id`; Studio fills it in)
+- D1 binding name in code: `c.env.{{d1_binding}}`

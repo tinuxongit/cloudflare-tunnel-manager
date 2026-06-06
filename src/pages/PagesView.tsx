@@ -6,11 +6,16 @@ import { PageRow } from '@/components/PageRow';
 import { useLiveStatus } from '@/hooks/useLiveStatus';
 import { AddPageDialog } from '@/components/AddPageDialog';
 import type { Page } from '@/lib/types';
+import { PageShell, PageHeader } from '@/components/PageShell';
+import { useConfirm } from '@/components/ConfirmDialog';
+import { LocalLogsViewer } from '@/components/LocalLogsViewer';
 
 export function PagesView() {
   const { pages, statusByTunnel, refreshPages } = useStore();
+  const confirm = useConfirm();
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Page | null>(null);
+  const [logsFor, setLogsFor] = useState<Page | null>(null);
   const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
   const [globalError, setGlobalError] = useState<string | null>(null);
   useLiveStatus(true);
@@ -39,7 +44,13 @@ export function PagesView() {
   }
 
   async function remove(page: Page) {
-    if (!confirm(`Delete ${page.hostname}? This stops routing through cloudflared but does NOT remove the DNS record from Cloudflare.`)) return;
+    const ok = await confirm({
+      title: `Delete route ${page.hostname}?`,
+      message: 'Stops routing through cloudflared but does NOT remove the DNS record from Cloudflare.',
+      variant: 'danger',
+      confirmLabel: 'Delete route',
+    });
+    if (!ok) return;
     setBusy(page.id, true); setGlobalError(null);
     try {
       // First disable + restart so cloudflared stops serving this hostname
@@ -57,37 +68,51 @@ export function PagesView() {
   }
 
   return (
-    <div>
-      <div className="px-7 py-5 border-b border-border-subtle bg-bg-elev/70 backdrop-blur flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold tracking-tight">Pages</h2>
-          <div className="text-[11px] text-fg-dim font-mono mt-1">workspace / pages</div>
-        </div>
-        <button onClick={() => setAdding(true)} className="bg-gradient-to-b from-fg to-fg-muted text-bg rounded-md px-4 py-2 text-xs font-semibold shadow">+ Add page</button>
-      </div>
+    <PageShell>
+      <PageHeader title="Routes"
+        subtitle="hostname → local service via tunnel"
+        actions={
+          <>
+            <button onClick={refreshPages}
+              className="h-9 text-xs px-3 border border-border-strong rounded-md text-fg-muted hover:text-fg hover:bg-bg-elev transition">
+              ↻ Refresh
+            </button>
+            <button onClick={() => setAdding(true)} className="h-9 bg-gradient-to-b from-zinc-50 to-zinc-300 text-bg rounded-md px-4 text-xs font-semibold shadow-[0_1px_0_rgba(255,255,255,0.35)_inset]">
+              + Add route
+            </button>
+          </>
+        } />
 
       <StatsStrip />
 
       {globalError && (
-        <div className="mx-4 mt-4 px-4 py-2 text-xs text-red-300 border border-red-700/40 bg-red-950/30 rounded-md font-mono">
+        <div className="px-4 py-2 text-xs text-red-300 border border-red-700/40 bg-red-950/30 rounded-md font-mono">
           {globalError}
         </div>
       )}
 
-      <div className="p-4">
-        {pages.length === 0
-          ? <div className="text-fg-dim text-sm p-6">No pages yet. Click "+ Add page" to create one.</div>
-          : pages.map(p => (
+      {pages.length === 0
+        ? <div className="text-fg-dim text-sm">No routes yet. Click "+ Add route" to create one.</div>
+        : <div className="space-y-2">
+            {pages.map(p => (
               <PageRow key={p.id} page={p}
                 status={statusByTunnel[p.tunnel_uuid]}
                 busy={busyIds.has(p.id)}
                 onToggle={(on) => toggle(p.id, on)}
                 onEdit={() => setEditing(p)}
-                onDelete={() => remove(p)} />
+                onDelete={() => remove(p)}
+                onViewLogs={() => setLogsFor(p)} />
             ))}
-      </div>
+          </div>}
+
       <AddPageDialog open={adding} onClose={() => setAdding(false)} />
       <AddPageDialog open={editing !== null} onClose={() => setEditing(null)} editing={editing} />
-    </div>
+      {logsFor && (
+        <LocalLogsViewer
+          pageId={logsFor.id}
+          hostname={logsFor.hostname}
+          onClose={() => setLogsFor(null)} />
+      )}
+    </PageShell>
   );
 }

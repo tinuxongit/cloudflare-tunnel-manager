@@ -3,15 +3,23 @@ name = "cf-tunnel-connector"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.77.2"
+description = "Cloudflare Tunnel Manager — connector. Headless companion to Cloudflare Studio for managing tunnels, Workers, R2, D1, DNS, and projects from a remote PC."
+authors = ["Cloudflare Tunnel Manager"]
+license = "MIT"
 
 [[bin]]
 name = "cf-tunnel-connector"
 path = "src/main.rs"
 
+[build-dependencies]
+winresource = "0.1"
+
 [dependencies]
 cf_tunnel_core = { path = "../core" }
 axum = "0.7"
-tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "signal", "net", "time", "sync", "process"] }
+tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "signal", "net", "time", "sync", "process", "io-util"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures-util = "0.3"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 serde = { version = "1.0", features = ["derive"] }

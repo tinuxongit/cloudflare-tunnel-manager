@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Cloudflare Tunnel Manager",
-  "version": "0.1.0",
-  "identifier": "com.adminlord.cftunnelmanager",
+  "productName": "Cloudflare Studio",
+  "version": "0.4.0",
+  "identifier": "com.adminlord.cloudflarestudio",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Cloudflare Tunnel Manager",
+        "title": "Cloudflare Studio",
         "width": 1180,
         "height": 740,
         "minWidth": 880,

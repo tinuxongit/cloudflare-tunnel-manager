@@ -118,8 +118,14 @@ impl LocalSupervisor {
                 c
             }
         } else {
-            let exe = argv.remove(0);
-            let mut c = Command::new(exe);
+            let exe_name = argv.remove(0);
+            // Resolve via the shared path resolver — handles the common
+            // Windows case where the binary is installed but the running
+            // connector inherited a stale PATH (winget installs etc.).
+            let exe_path = crate::resolve::resolve_program(&exe_name)
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or(exe_name.clone());
+            let mut c = Command::new(&exe_path);
             c.args(&argv);
             c
         };

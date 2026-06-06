@@ -3,7 +3,6 @@
 //! the ~150 MB Node hit that comes with it.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::net::SocketAddr;
 use tokio::sync::oneshot;
 use tower_http::services::ServeDir;
@@ -32,9 +31,7 @@ pub async fn spawn(dir: PathBuf, port: u16) -> std::io::Result<StaticServerHandl
 
 pub fn shutdown(h: StaticServerHandle) {
     let _ = h.stop.send(());
-    // Don't await the join — supervisor wants this fast.
-    drop(h.task);
+    // Do not wait here, but tear the listener down promptly so restarting on
+    // the same assigned port does not race the graceful task.
+    h.task.abort();
 }
-
-#[allow(dead_code)]
-pub fn keep_alive(_h: Arc<StaticServerHandle>) {} // placeholder

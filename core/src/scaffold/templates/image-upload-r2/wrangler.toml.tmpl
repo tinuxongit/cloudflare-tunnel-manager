@@ -1,0 +1,11 @@
+name = "{{project_name}}"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+workers_dev = {{workers_dev}}
+
+# Create the bucket in Cloudflare Studio → R2 → New bucket (name it
+# "{{project_name}}-uploads"), then this binding wires it to the Worker as
+# `c.env.UPLOADS`. Or run: wrangler r2 bucket create {{project_name}}-uploads
+[[r2_buckets]]
+binding = "UPLOADS"
+bucket_name = "{{project_name}}-uploads"

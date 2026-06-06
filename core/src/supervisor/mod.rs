@@ -9,20 +9,45 @@ use crate::error::AppResult;
 use proc::ManagedProc;
 
 pub struct Supervisor {
-    pub cloudflared_path: PathBuf,
+    cloudflared_path: Mutex<PathBuf>,
     procs: Mutex<HashMap<String, ManagedProc>>, // keyed by tunnel_uuid
 }
 
 impl Supervisor {
     pub fn new(cloudflared_path: PathBuf) -> Arc<Self> {
-        Arc::new(Self { cloudflared_path, procs: Mutex::new(HashMap::new()) })
+        Arc::new(Self { cloudflared_path: Mutex::new(cloudflared_path), procs: Mutex::new(HashMap::new()) })
+    }
+
+    pub fn cloudflared_path(&self) -> PathBuf {
+        self.cloudflared_path.lock().clone()
+    }
+
+    pub fn set_cloudflared_path(&self, path: PathBuf) {
+        *self.cloudflared_path.lock() = path;
     }
 
     pub fn start(&self, tunnel_uuid: &str, config_path: &std::path::Path) -> AppResult<u16> {
-        let mp = proc::spawn(&self.cloudflared_path, config_path, tunnel_uuid)?;
+        let path = self.cloudflared_path();
+        let mp = proc::spawn(&path, config_path, tunnel_uuid)?;
         let port = mp.metrics_port;
         self.procs.lock().insert(tunnel_uuid.into(), mp);
         Ok(port)
+    }
+
+    /// Token-mode spawn — used when the tunnel was created via the API
+    /// (`config_src: "cloudflare"`). No cert.pem, no credentials file, no
+    /// local YAML config. Ingress rules come from CF (set via API).
+    pub fn start_with_token(&self, tunnel_uuid: &str, token: &str) -> AppResult<u16> {
+        let path = self.cloudflared_path();
+        let mp = proc::spawn_with_token(&path, token, tunnel_uuid)?;
+        let port = mp.metrics_port;
+        self.procs.lock().insert(tunnel_uuid.into(), mp);
+        Ok(port)
+    }
+
+    pub fn restart_with_token(&self, tunnel_uuid: &str, token: &str) -> AppResult<u16> {
+        self.stop(tunnel_uuid);
+        self.start_with_token(tunnel_uuid, token)
     }
 
     pub fn stop(&self, tunnel_uuid: &str) {

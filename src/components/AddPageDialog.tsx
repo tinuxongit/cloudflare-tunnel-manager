@@ -3,6 +3,8 @@ import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { api } from '@/lib/ipc';
 import type { Detected, Page, Tunnel } from '@/lib/types';
 import { useStore } from '@/lib/store';
+import { getConnection } from '@/lib/connection';
+import { RemoteFolderPicker } from '@/components/RemoteFolderPicker';
 
 type Props = {
   open: boolean;
@@ -45,7 +47,7 @@ function DropSetupGuideButton({ sourceDir }: { sourceDir: string }) {
 }
 
 export function AddPageDialog({ open, onClose, editing }: Props) {
-  const { tunnels, zones, hasToken, refreshPages, refreshTunnels, refreshZones, refreshTokenState } = useStore();
+  const { tunnels, zones, hasToken, settings, refreshPages, refreshTunnels, refreshZones, refreshTokenState } = useStore();
 
   // Free-text fallback when no token / no zones loaded
   const [hostnameRaw, setHostnameRaw] = useState('');
@@ -66,12 +68,14 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
   const [runCommand, setRunCommand] = useState('');
   const [detected, setDetected] = useState<Detected | null>(null);
   const [detecting, setDetecting] = useState(false);
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
 
   const isEdit = !!editing;
   const useZoneMode = hasToken && zones.length > 0;
 
   const finalHostname = useMemo(() => {
     if (!useZoneMode) return hostnameRaw.trim();
+    if (!zoneName) return hostnameRaw.trim();
     const sub = subdomain.trim().replace(/\.+$/, '');
     return sub ? `${sub}.${zoneName}` : zoneName;
   }, [useZoneMode, hostnameRaw, subdomain, zoneName]);
@@ -96,19 +100,8 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
       setSourceDir(editing.source_dir ?? '');
       setRunCommand(editing.run_command ?? '');
       setMode(editing.source_dir ? 'folder' : 'manual');
-      const z = zones.find(z =>
-        editing.hostname === z.name || editing.hostname.endsWith('.' + z.name)
-      );
-      if (z) {
-        setZoneName(z.name);
-        const sub = editing.hostname === z.name
-          ? ''
-          : editing.hostname.slice(0, editing.hostname.length - z.name.length - 1);
-        setSubdomain(sub);
-      } else {
-        setZoneName('');
-        setSubdomain('');
-      }
+      setZoneName('');
+      setSubdomain('');
     } else {
       setHostnameRaw('');
       setServiceUrl('http://localhost:3000');
@@ -122,44 +115,72 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
   }, [open, editing, hasToken]);
 
   useEffect(() => {
-    if (!tunnelUuid && tunnels[0] && !editing) setTunnelUuid(tunnels[0].uuid);
-  }, [tunnels, tunnelUuid, editing]);
+    if (!open || !editing || zones.length === 0) return;
+    const z = zones.find(z =>
+      editing.hostname === z.name || editing.hostname.endsWith('.' + z.name)
+    );
+    if (!z) {
+      setZoneName('');
+      setSubdomain('');
+      return;
+    }
+    setZoneName(z.name);
+    setSubdomain(editing.hostname === z.name
+      ? ''
+      : editing.hostname.slice(0, editing.hostname.length - z.name.length - 1));
+  }, [open, editing, zones]);
 
   useEffect(() => {
-    if (useZoneMode && !zoneName && zones[0]) setZoneName(zones[0].name);
-  }, [useZoneMode, zoneName, zones]);
+    if (editing || tunnelUuid) return;
+    const shared = settings?.grouping_mode === 'shared' ? settings.shared_tunnel_uuid : null;
+    const preferred = shared && tunnels.some(t => t.uuid === shared) ? shared : tunnels[0]?.uuid;
+    if (preferred) setTunnelUuid(preferred);
+  }, [tunnels, tunnelUuid, editing, settings]);
+
+  useEffect(() => {
+    if (useZoneMode && !isEdit && !zoneName && zones[0]) setZoneName(zones[0].name);
+  }, [useZoneMode, isEdit, zoneName, zones]);
 
   if (!open) return null;
 
-  // Helper: route DNS via the explicit-zone API path when we have a zone selected
-  // (avoids cloudflared's zone-guessing bug). Fall back to the CLI path otherwise.
+  // Always routes DNS via the Cloudflare API — works in both local and remote
+  // mode with just the saved API token; no cert.pem required on the server.
   async function doRouteDns(hostname: string, overwrite: boolean) {
-    if (useZoneMode && zoneName) {
-      const zone = zones.find(z => z.name === zoneName);
-      if (zone) {
-        await api.routeDnsViaApi(zone.id, hostname, tunnelUuid, overwrite);
-        return;
-      }
+    if (!useZoneMode || !zoneName) {
+      throw new Error(
+        'Hostname needs to be under one of your Cloudflare zones. Pick a zone from the dropdown.'
+      );
     }
-    await api.routeDns(tunnelUuid, hostname, overwrite);
+    const zone = zones.find(z => z.name === zoneName);
+    if (!zone) {
+      throw new Error(`Zone "${zoneName}" not found in your account.`);
+    }
+    await api.routeDnsViaApi(zone.id, hostname, tunnelUuid, overwrite);
   }
 
   async function pickFolder() {
+    if (getConnection().mode === 'remote') {
+      setFolderPickerOpen(true);
+      return;
+    }
     const picked = await openDialog({ directory: true, multiple: false });
     if (typeof picked === 'string' && picked) {
-      setSourceDir(picked);
-      setDetecting(true);
-      try {
-        const d = await api.detectFolder(picked);
-        setDetected(d);
-        // Auto-fill the command if the user hasn't customized it yet
-        if (!runCommand || runCommand === detected?.command) {
-          setRunCommand(d.command);
-        }
-      } catch (e: any) {
-        setDetected({ kind: 'not_found', command: '', note: e?.message ?? String(e) });
-      } finally { setDetecting(false); }
+      await applyPickedFolder(picked);
     }
+  }
+
+  async function applyPickedFolder(picked: string) {
+    setSourceDir(picked);
+    setDetecting(true);
+    try {
+      const d = await api.detectFolder(picked);
+      setDetected(d);
+      if (!runCommand || runCommand === detected?.command) {
+        setRunCommand(d.command);
+      }
+    } catch (e: any) {
+      setDetected({ kind: 'not_found', command: '', note: e?.message ?? String(e) });
+    } finally { setDetecting(false); }
   }
 
   async function submit(overwrite = false) {
@@ -224,7 +245,7 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
       <div className="w-[520px] max-h-[90vh] bg-bg-elev border border-border-strong rounded-xl shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="px-6 pt-6 pb-3 border-b border-border-subtle">
-          <h3 className="text-base font-semibold">{isEdit ? 'Edit page' : 'Add page'}</h3>
+          <h3 className="text-base font-semibold">{isEdit ? 'Edit route' : 'Add route'}</h3>
         </div>
 
         <div className="px-6 py-4 overflow-y-auto flex-1">
@@ -242,6 +263,7 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
               value={zoneName}
               onChange={e => setZoneName(e.target.value)}
               className="bg-bg border border-border rounded-md px-3 py-2 text-sm font-mono min-w-[180px]">
+              {isEdit && <option value="">keep current hostname</option>}
               {zones.map(z => <option key={z.id} value={z.name}>{z.name}</option>)}
             </select>
           </div>
@@ -349,6 +371,15 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
 
         </div>{/* end scrollable body */}
 
+        {folderPickerOpen && (
+          <RemoteFolderPicker
+            title="Pick a folder on the remote server"
+            initialPath={sourceDir || null}
+            onClose={() => setFolderPickerOpen(false)}
+            onPick={(p) => { setFolderPickerOpen(false); applyPickedFolder(p).catch(() => {}); }}
+          />
+        )}
+
         <div className="px-6 py-4 border-t border-border-subtle flex justify-end gap-2 bg-bg-elev rounded-b-xl">
           <button onClick={onClose} className="px-3 py-2 text-sm text-fg-muted hover:text-fg">Cancel</button>
           {conflictRetry && (
@@ -361,7 +392,7 @@ export function AddPageDialog({ open, onClose, editing }: Props) {
           <button onClick={() => submit(false)} disabled={!finalHostname || !tunnelUuid || submitting}
             className="bg-gradient-to-b from-fg to-fg-muted text-bg rounded-md px-4 py-2 text-xs font-semibold disabled:opacity-40 flex items-center gap-2">
             {submitting && <span className="w-3 h-3 border border-bg border-t-transparent rounded-full animate-spin" />}
-            {submitting ? (isEdit ? 'Saving…' : 'Adding…') : (isEdit ? 'Save' : 'Add page')}
+            {submitting ? (isEdit ? 'Saving…' : 'Adding…') : (isEdit ? 'Save' : 'Add route')}
           </button>
         </div>
       </div>

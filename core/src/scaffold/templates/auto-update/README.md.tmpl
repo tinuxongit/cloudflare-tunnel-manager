@@ -1,0 +1,25 @@
+# {{project_name}}
+
+Auto-update endpoint for desktop apps. Returns the latest version + download URL, or 204 if the client is already up to date.
+
+## Bump version
+
+Edit `wrangler.toml` `[vars]`:
+
+```toml
+[vars]
+CURRENT_VERSION = "0.2.0"
+DOWNLOAD_URL_WIN = "https://example.com/myapp-0.2.0-x64.msi"
+```
+
+Redeploy. Next launch, every client sees the new version.
+
+## Tauri wiring
+
+In your app's `tauri.conf.json`:
+```json
+"updater": {
+  "active": true,
+  "endpoints": ["https://YOUR-WORKER-URL/{{target}}/{{current_version}}"]
+}
+```

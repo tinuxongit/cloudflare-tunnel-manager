@@ -19,7 +19,7 @@ export function StatsStrip() {
 function Cell({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
     <div className="px-6 py-5 border-r border-border-subtle last:border-r-0">
-      <div className="text-[10px] uppercase tracking-widest font-mono text-fg-dim mb-2">{label}</div>
+      <div className="text-[11px] uppercase tracking-wider text-fg-muted font-semibold mb-2">{label}</div>
       <div className="text-2xl font-semibold tracking-tight">{value}</div>
       <div className="text-[11px] font-mono text-fg-muted mt-1">{sub}</div>
     </div>

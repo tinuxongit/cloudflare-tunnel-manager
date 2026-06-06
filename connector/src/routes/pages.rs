@@ -4,12 +4,13 @@ use axum::{
 };
 use serde::Deserialize;
 
-use cf_tunnel_core::cloudflared::config_gen;
+use cf_tunnel_core::cloudflared::api;
 use cf_tunnel_core::db::models::{NewPageInput, Page, PagePatch};
 use cf_tunnel_core::db::queries;
 use cf_tunnel_core::local_server::EMBEDDED_STATIC;
 
 use crate::error::ApiError;
+use crate::events::StateEvent;
 use crate::state::ConnectorState;
 
 pub async fn list_pages(
@@ -23,8 +24,12 @@ pub async fn create_page(
     State(state): State<ConnectorState>,
     Json(input): Json<NewPageInput>,
 ) -> Result<Json<Page>, ApiError> {
-    let g = state.core.db.lock();
-    Ok(Json(queries::insert_page(&g, &input)?))
+    let p = {
+        let g = state.core.db.lock();
+        queries::insert_page(&g, &input)?
+    };
+    state.events.publish(StateEvent::PagesChanged);
+    Ok(Json(p))
 }
 
 pub async fn update_page(
@@ -32,16 +37,23 @@ pub async fn update_page(
     Path(id): Path<i64>,
     Json(patch): Json<PagePatch>,
 ) -> Result<Json<Page>, ApiError> {
-    let g = state.core.db.lock();
-    Ok(Json(queries::update_page(&g, id, &patch)?))
+    let p = {
+        let g = state.core.db.lock();
+        queries::update_page(&g, id, &patch)?
+    };
+    state.events.publish(StateEvent::PagesChanged);
+    Ok(Json(p))
 }
 
 pub async fn delete_page(
     State(state): State<ConnectorState>,
     Path(id): Path<i64>,
 ) -> Result<Json<()>, ApiError> {
-    let g = state.core.db.lock();
-    queries::delete_page(&g, id)?;
+    {
+        let g = state.core.db.lock();
+        queries::delete_page(&g, id)?;
+    }
+    state.events.publish(StateEvent::PagesChanged);
     Ok(Json(()))
 }
 
@@ -59,24 +71,22 @@ pub async fn toggle_page(
         enabled: Some(body.on),
         ..Default::default()
     };
-    let g = state.core.db.lock();
-    Ok(Json(queries::update_page(&g, id, &patch)?))
+    let p = {
+        let g = state.core.db.lock();
+        queries::update_page(&g, id, &patch)?
+    };
+    state.events.publish(StateEvent::PagesChanged);
+    Ok(Json(p))
 }
 
 pub async fn start_or_restart(
     State(state): State<ConnectorState>,
     Path(page_id): Path<i64>,
 ) -> Result<Json<()>, ApiError> {
-    let (tunnel_uuid, this_page, cred_path) = {
+    let (tunnel_uuid, this_page) = {
         let g = state.core.db.lock();
         let page = queries::get_page(&g, page_id)?;
-        let tunnels = queries::list_tunnels(&g)?;
-        let cred = tunnels
-            .iter()
-            .find(|t| t.uuid == page.tunnel_uuid)
-            .map(|t| t.cred_path.clone())
-            .unwrap_or_default();
-        (page.tunnel_uuid.clone(), page, cred)
+        (page.tunnel_uuid.clone(), page)
     };
 
     if this_page.enabled {
@@ -102,7 +112,7 @@ pub async fn start_or_restart(
                 page_id,
                 &PagePatch {
                     service_url: Some(url),
-                    assigned_port: Some(port),
+                    assigned_port: Some(Some(port)),
                     ..Default::default()
                 },
             )?;
@@ -111,24 +121,49 @@ pub async fn start_or_restart(
         state.core.local.stop(page_id);
     }
 
-    let (enabled_siblings, cfg_path) = {
+    let enabled_siblings: Vec<Page> = {
         let g = state.core.db.lock();
         let fresh = queries::list_pages(&g)?;
-        let siblings: Vec<Page> = fresh
+        fresh
             .into_iter()
             .filter(|p| p.tunnel_uuid == tunnel_uuid && p.enabled)
-            .collect();
-        let yaml = config_gen::build_yaml(&tunnel_uuid, &cred_path, &siblings);
-        let cfg = config_gen::write_yaml(&state.core.configs_dir, &tunnel_uuid, &yaml)?;
-        (siblings, cfg)
+            .collect()
     };
 
     if enabled_siblings.is_empty() {
         state.core.supervisor.stop(&tunnel_uuid);
-    } else {
-        state.core.supervisor.restart(&tunnel_uuid, &cfg_path)?;
+        state.events.publish(StateEvent::PagesChanged);
+        state.events.publish(StateEvent::TunnelStatus {
+            uuid: tunnel_uuid.clone(),
+            state: "stopped".into(),
+        });
+        return Ok(Json(()));
     }
 
+    let ingress: Vec<api::IngressRule> = enabled_siblings
+        .iter()
+        .map(|p| api::IngressRule {
+            hostname: Some(p.hostname.clone()),
+            service: p.service_url.clone(),
+            path: None,
+        })
+        .chain(std::iter::once(api::IngressRule {
+            hostname: None,
+            service: "http_status:404".into(),
+            path: None,
+        }))
+        .collect();
+
+    let creds = api::resolve_credentials()?;
+    api::put_tunnel_config(&creds, &tunnel_uuid, ingress).await?;
+    let token = api::get_tunnel_token(&creds, &tunnel_uuid).await?;
+    state.core.supervisor.restart_with_token(&tunnel_uuid, &token)?;
+
+    state.events.publish(StateEvent::PagesChanged);
+    state.events.publish(StateEvent::TunnelStatus {
+        uuid: tunnel_uuid.clone(),
+        state: "starting".into(),
+    });
     Ok(Json(()))
 }
 

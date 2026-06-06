@@ -35,3 +35,7 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+
+# Local build/run artifacts (not for distribution)
+.local-run/
+Cloudflare Studio EXE/

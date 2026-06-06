@@ -44,5 +44,23 @@ pub static MIGRATIONS: Lazy<Migrations<'static>> = Lazy::new(|| {
             ALTER TABLE pages ADD COLUMN assigned_port INTEGER;
             "#,
         ),
+        // v3: created projects from the New Project wizard. Tracks the folder
+        // on disk + the deployed URL so the Projects view can list + redeploy.
+        M::up(
+            r#"
+            CREATE TABLE projects (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT    NOT NULL,
+                template_id     TEXT    NOT NULL,
+                folder          TEXT    NOT NULL UNIQUE,
+                deployed_url    TEXT,
+                custom_domain   TEXT,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                last_deployed_at TEXT
+            );
+
+            CREATE INDEX idx_projects_name ON projects(name);
+            "#,
+        ),
     ])
 });

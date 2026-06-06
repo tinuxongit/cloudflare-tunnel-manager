@@ -1,0 +1,13 @@
+name = "{{project_name}}"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+workers_dev = {{workers_dev}}
+
+# CURRENT_VERSION + DOWNLOAD_URL_* are read from env at request time. Edit
+# them here, or set as secrets to bump versions without redeploying.
+[vars]
+CURRENT_VERSION    = "0.1.0"
+DOWNLOAD_URL_WIN   = "https://example.com/myapp-0.1.0-x64.msi"
+DOWNLOAD_URL_MAC   = "https://example.com/myapp-0.1.0-mac.dmg"
+DOWNLOAD_URL_LINUX = "https://example.com/myapp-0.1.0-amd64.AppImage"
+RELEASE_NOTES_URL  = "https://example.com/notes/0.1.0.html"

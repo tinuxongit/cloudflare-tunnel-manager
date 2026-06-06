@@ -1,0 +1,53 @@
+/**
+ * {{project_name}} — accept HTML form / JSON submissions, store in D1.
+ *
+ * Endpoints:
+ *   POST /submit  — accepts application/json OR application/x-www-form-urlencoded
+ *                   Required: email (any other fields land in `meta` as JSON).
+ *                   Returns: { id, ok: true }
+ *   GET  /submissions  — last 100 (you'll probably want to remove this in prod
+ *                        or put auth in front; it leaks all submissions).
+ */
+
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+
+const app = new Hono();
+app.use("*", cors({ origin: "*" }));
+
+app.post("/submit", async (c) => {
+  const ct = c.req.header("content-type") || "";
+  let body = {};
+  if (ct.includes("application/json")) {
+    body = await c.req.json().catch(() => ({}));
+  } else if (ct.includes("application/x-www-form-urlencoded") || ct.includes("multipart/form-data")) {
+    const fd = await c.req.formData();
+    fd.forEach((v, k) => { body[k] = String(v); });
+  }
+  const email   = String(body.email   || "").trim();
+  const name    = String(body.name    || "").trim() || null;
+  const message = String(body.message || "").trim() || null;
+  if (!email) return c.json({ error: "email is required" }, 400);
+
+  const known = new Set(["email", "name", "message"]);
+  const extra = Object.fromEntries(Object.entries(body).filter(([k]) => !known.has(k)));
+
+  const res = await c.env.{{d1_binding}}.prepare(
+    "INSERT INTO submissions (email, name, message, meta, ip, user_agent, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).bind(
+    email, name, message, JSON.stringify(extra),
+    c.req.header("cf-connecting-ip") || "",
+    c.req.header("user-agent") || "",
+    Date.now(),
+  ).run();
+  return c.json({ id: res.meta.last_row_id, ok: true });
+});
+
+app.get("/submissions", async (c) => {
+  const { results } = await c.env.{{d1_binding}}.prepare(
+    "SELECT id, email, name, message, meta, created_at FROM submissions ORDER BY created_at DESC LIMIT 100"
+  ).all();
+  return c.json({ submissions: results ?? [] });
+});
+
+export default app;

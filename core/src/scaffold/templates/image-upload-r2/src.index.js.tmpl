@@ -1,0 +1,87 @@
+/**
+ * {{project_name}} — image upload to R2.
+ *
+ * Endpoints:
+ *   POST /upload      — multipart/form-data with field "file"
+ *                       OR a raw image body with Content-Type: image/*
+ *                       → { key, url }
+ *   GET  /:key        — fetch a stored image (proxies from R2)
+ *   GET  /list        — list uploaded keys (paginated)
+ *   DELETE /:key      — delete an image
+ *
+ * For public hosting without proxying: enable r2.dev domain on the bucket
+ * in the CF dashboard and skip the GET /:key handler entirely.
+ */
+
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+
+const app = new Hono();
+app.use("*", cors({ origin: "*" }));
+
+const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"];
+const MAX_BYTES = 10 * 1024 * 1024; // 10MB
+
+app.post("/upload", async (c) => {
+  const ct = c.req.header("content-type") || "";
+  let file, type;
+
+  if (ct.includes("multipart/form-data")) {
+    const fd = await c.req.formData();
+    const f = fd.get("file");
+    if (!f || typeof f === "string") return c.json({ error: "missing file field" }, 400);
+    file = f; type = f.type;
+  } else if (ct.startsWith("image/")) {
+    file = await c.req.arrayBuffer(); type = ct;
+  } else {
+    return c.json({ error: "send multipart with `file`, or raw image body" }, 400);
+  }
+
+  if (!ALLOWED_TYPES.includes(type)) return c.json({ error: `unsupported type: ${type}` }, 400);
+  const size = file instanceof ArrayBuffer ? file.byteLength : file.size;
+  if (size > MAX_BYTES) return c.json({ error: `file too large (max ${MAX_BYTES} bytes)` }, 413);
+
+  const ext = type.split("/")[1].replace("+xml", "");
+  const key = `${Date.now()}-${randomHex(8)}.${ext}`;
+  const body = file instanceof ArrayBuffer ? file : await file.arrayBuffer();
+  await c.env.UPLOADS.put(key, body, { httpMetadata: { contentType: type } });
+
+  const url = new URL(c.req.url);
+  url.pathname = `/${key}`;
+  return c.json({ key, url: url.toString() });
+});
+
+app.get("/list", async (c) => {
+  const cursor = c.req.query("cursor") || undefined;
+  const list = await c.env.UPLOADS.list({ limit: 100, cursor });
+  return c.json({
+    objects: list.objects.map(o => ({ key: o.key, size: o.size, uploaded: o.uploaded })),
+    cursor: list.truncated ? list.cursor : null,
+  });
+});
+
+app.get("/:key", async (c) => {
+  const key = c.req.param("key");
+  const obj = await c.env.UPLOADS.get(key);
+  if (!obj) return new Response("Not found", { status: 404 });
+  return new Response(obj.body, {
+    headers: {
+      "content-type": obj.httpMetadata?.contentType || "application/octet-stream",
+      "cache-control": "public, max-age=31536000",
+      "etag": obj.httpEtag,
+    },
+  });
+});
+
+app.delete("/:key", async (c) => {
+  await c.env.UPLOADS.delete(c.req.param("key"));
+  return c.json({ ok: true });
+});
+
+export default app;
+
+function randomHex(n) {
+  const b = new Uint8Array(n);
+  crypto.getRandomValues(b);
+  return [...b].map(x => x.toString(16).padStart(2, "0")).join("");
+}

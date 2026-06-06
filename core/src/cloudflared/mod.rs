@@ -1,4 +1,8 @@
 pub mod cli;
-pub mod config_gen;
-pub mod cert;
 pub mod api;
+pub mod bootstrap;
+pub mod workers;
+pub mod d1;
+pub mod dns;
+pub mod pages;
+pub mod r2;

@@ -1,0 +1,22 @@
+# {{project_name}}
+
+Email + password + machine-bound token login server. Same shape as DataBrick's.
+
+## Endpoints
+
+| Method | Path | Body |
+|---|---|---|
+| POST | /signup  | `{ email, password }` |
+| POST | /login   | `{ email, password, machine_id }` |
+| POST | /verify  | `{ token, machine_id }` |
+| POST | /refresh | `{ token }` |
+| POST | /logout  | `{ token }` |
+| GET  | /health  | |
+
+`machine_id` is anything your client generates and stores (e.g. `crypto.randomUUID()` on first launch). Tokens are bound to it — copying a token to a different machine fails verify.
+
+## Push schema changes
+
+```sh
+pnpm run db:migrate
+```

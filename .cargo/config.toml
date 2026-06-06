@@ -1,0 +1,12 @@
+# Statically link the MSVC runtime on Windows so shipped binaries (notably the
+# connector .exe) don't depend on vcruntime140.dll being installed on the
+# target machine. Costs ~200 KB per binary, saves "missing DLL" support
+# tickets on bare Windows Server installs.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.i686-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
