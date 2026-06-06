@@ -2,6 +2,8 @@
 
 A desktop app for Windows, macOS, and Linux that puts your Cloudflare account in one window: tunnels, Workers, D1, R2, DNS, Pages, and a few project scaffolds. Most of it talks to the Cloudflare API directly, so you can manage things with just an API token instead of the dashboard or the terminal.
 
+![Cloudflare Studio dashboard](docs/screenshot.png)
+
 ## Download
 
 The latest binaries are on the [Releases](../../releases) page:
